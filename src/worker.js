@@ -12,6 +12,40 @@ function ident(v) {
   if(!/^[A-Za-z0-9_-]{1,32}$/.test(v)) throw bad("Identificador invalido");
   return v;
 }
+// Parses a limited Python-style literal dialect used by older SIU replies.
+// Values are parsed as data, never executed: no eval/Function allowed.
+function siuLegacyParse(raw){
+  if(raw.length>500000)return undefined;
+  let quote=null,buffer="",out="";
+  for(let i=0;i<raw.length;i++){
+    const ch=raw[i];
+    if(quote){
+      if(ch==="\\"){
+        if(i+1>=raw.length)return undefined;
+        const next=raw[++i];
+        buffer += ({n:"\n",r:"\r",t:"\t",b:"\b",f:"\f"}[next]??next);
+      }else if(ch===quote){
+        out+=JSON.stringify(buffer);
+        quote=null;buffer="";
+      }else buffer+=ch;
+      continue;
+    }
+    if(ch==="'" || ch==='"'){quote=ch;continue;}
+    if(/[A-Za-z_]/.test(ch)){
+      let word=ch;
+      while(i+1<raw.length && /[A-Za-z_0-9]/.test(raw[i+1]))word+=raw[++i];
+      if(word==="True")out+="true";
+      else if(word==="False")out+="false";
+      else if(word==="None")out+="null";
+      else return undefined;
+      continue;
+    }
+    if(!/[0-9{}\[\]:,\.\-+\s]/.test(ch))return undefined;
+    out+=ch;
+  }
+  if(quote)return undefined;
+  try{return JSON.parse(out);}catch{return undefined;}
+}
 function array(v,depth=0) {
   // No SIU, o campo "linhas" pode vir como string, array de strings,
   // objeto ou uma mistura. O app usa coerção para string + eval(...).
@@ -25,9 +59,10 @@ function array(v,depth=0) {
   for(const sample of [raw,"["+raw+"]"]){
     try {
       const parsed=JSON.parse(sample);
-      if(parsed===v) continue;
-      return array(parsed,depth+1);
+      if(parsed!==v) return array(parsed,depth+1);
     }catch{}
+    const legacy=siuLegacyParse(sample);
+    if(legacy!==undefined && legacy!==v) return array(legacy,depth+1);
   }
   return [];
 }
@@ -40,6 +75,11 @@ function shape(d,rows){
     tipoLinhas:Array.isArray(raw)?"array":raw===null?"null":typeof raw,
     elementosBrutos:Array.isArray(raw)?raw.length:null,
     tipoPrimeiroElemento:Array.isArray(raw)&&raw.length?(Array.isArray(raw[0])?"array":typeof raw[0]):null,
+    comprimentoPrimeiroElemento:Array.isArray(raw)&&typeof raw[0]==="string"?raw[0].length:null,
+    aparentaLiteralLegado:(typeof raw==="string" && raw.includes("'cod'")) ||
+      (Array.isArray(raw)&&typeof raw[0]==="string"&&raw[0].includes("'cod'")),
+    catalogoVazioConfirmado:(Array.isArray(raw)&&raw.length===0) ||
+      (typeof raw==="string" && (raw.trim()==="" || raw.trim()==="[]")),
     caracteresTexto:typeof raw==="string"?raw.length:null,
     itensInterpretados:rows.length,
     primeirosCampos:rows[0] && typeof rows[0]==="object"?Object.keys(rows[0]).slice(0,12):[],
@@ -60,7 +100,7 @@ function decode(s,expectedCallback,pathCallback){
   return JSON.parse(m[2]);
 }
 async function upstream(route,callback,ttl,ctx){
-  const key="https://cache.feirabus.invalid/v4/"+encodeURIComponent(route);
+  const key="https://cache.feirabus.invalid/v5/"+encodeURIComponent(route);
   const req=new Request(key), cached=await caches.default.match(req);
   if(cached)return cached.json();
   if(inflight.has(route))return inflight.get(route);
@@ -104,7 +144,7 @@ function vehicle(x,route,idOverride){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-line-parser-v2",worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-siu-legacy-catalog-v3",worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/initialize"){
     // O app FSA chama este endpoint ao abrir pela primeira vez. Retornamos
     // apenas o diagnóstico: parâmetros internos do operador não são publicados.

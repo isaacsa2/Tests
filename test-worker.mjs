@@ -10,7 +10,10 @@ globalThis.fetch=async function(url){
  assert.match(q.get("callback")||"",/^jQuery[0-9]+_[0-9]+$/);
  assert.ok(/^\d+$/.test(q.get("_")||""));
  let cb=q.get("callback"),d={sucesso:true};
- if(u.includes("/buscarLinhas/")){d.linhas=lineMode===0?['{"cod":"12","sgl":"001","nom":"Centro"},{"cod":"13","sgl":"002","nom":"Tomba"}']:lineMode===1?'{"cod":"12","sgl":"001","nom":"Centro"},{"cod":"13","sgl":"002","nom":"Tomba"}':[];}
+ if(u.includes("/buscarLinhas/")){d.linhas=lineMode===0?['{"cod":"12","sgl":"001","nom":"Centro"},{"cod":"13","sgl":"002","nom":"Tomba"}']:lineMode===1?'{"cod":"12","sgl":"001","nom":"Centro"},{"cod":"13","sgl":"002","nom":"Tomba"}':
+  lineMode===2?[]:
+  lineMode===3?["{'cod':'12','sgl':'001','nom':'Centro'},{'cod':'13','sgl':'002','nom':'Tomba'}"]:
+  ["indecifravel"];}
  else if(u.includes("/buscarParametrosIniciais/")){d.parametrosIniciais=[];}
  else if(u.includes("/retornaSublinhasDaLinha/")){d.subLinhas=[{cod:"120",sgl:"001A",nom:"Variante"}];}
  else if(u.includes("/buscarParadasPorLinha/")){d.paradas=[{cod:"315",sent:"Centro"}];}
@@ -42,6 +45,14 @@ lineMode=2;cache.clear();
 [,data]=await get("/api/lines");assert.equal(data.linhas.length,0);
 assert.equal(data.diagnostico.elementosBrutos,0);
 assert.equal(data.diagnostico.linhasValidas,0);
+assert.equal(data.diagnostico.catalogoVazioConfirmado,true);
+lineMode=3;cache.clear();
+[,data]=await get("/api/lines");assert.equal(data.linhas.length,2);
+assert.equal(data.linhas[0].numero,"001");
+lineMode=4;cache.clear();
+[,data]=await get("/api/lines");assert.equal(data.linhas.length,0);
+assert.equal(data.diagnostico.elementosBrutos,1);
+assert.equal(data.diagnostico.catalogoVazioConfirmado,false);
 lineMode=0;cache.clear();
 [,data]=await get("/api/sublines?line=12");assert.equal(data.sublinhas[0].id,"120");
 [,data]=await get("/api/stops?line=12");assert.equal(data.paradas[0].id,"315");

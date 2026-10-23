@@ -95,3 +95,9 @@ Se o painel avisar que o SIU retornou uma lista vazia, abra estes caminhos:
 - `/api/lines` — lista usada pelo dashboard.
 
 O parser agora aceita listas JSON aninhadas ou listas de strings que contêm sequências de objetos. O cache de linhas foi versionado e **não grava resultados vazios**, para evitar a falsa impressão de que a cidade não tem linhas. Se o diagnóstico informar `campoLinhasPresente: true` e `itensInterpretados: 0`, o serviço pode realmente estar retornando nada ou um formato que exige análise adicional; não inventar dados. `FSA_SIU_CITY = "null"` é coerente com o app FSA, que não exige seleção manual de cidade na instalação.
+
+## Diagnóstico v3: formato legado do catálogo SIU
+
+Na consulta `/api/lines`, o SIU pode retornar `linhas` como um array contendo string com objetos no formato `{'cod':'12','sgl':'001'}`, que não é JSON válido. O código passou a usar um decodificador limitado para literais no estilo Python (`True`, `False`, `None` e strings entre aspas simples); não usa `eval` nem executa scripts de origem externa.
+
+O endpoint `/api/diagnostics/lines` diferencia `catalogoVazioConfirmado: true` (payload `linhas: []` ou vazio) e lista não vazia que não pôde ser decodificada. Esses dados não provam que a cidade não tem linhas, apenas descrevem a resposta desta API. Nova versão em `/api/status`: `2026-10-23-siu-legacy-catalog-v3`.
