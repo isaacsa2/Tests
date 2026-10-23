@@ -1,7 +1,7 @@
 "use strict";
 (()=>{
 const id=name=>document.getElementById(name);
-const state={lines:[],schedule:[],variants:[],latestRequest:0,installPrompt:null,origins:[],origin:null,stopsRequest:0,openStop:null,pendingStop:null};
+const state={lines:[],schedule:[],variants:[],latestRequest:0,installPrompt:null,origins:[],origin:null,stopsRequest:0,openStop:null,pendingStop:null,stopBatchResults:new Map(),stopBatchToken:0,stopBatchRunning:false,lineRoutes:new Set()};
 // Ônibus sem posição nova há mais de 30 min some do app (o CCO continua mostrando).
 const BUS_MAX_AGE=30*60*1000;
 const FAV_KEY="feirabus-passenger-favorites",FAV_MAX=12;
@@ -200,7 +200,11 @@ async function getStop(){
  finally{b.disabled=false;}
 }
 function resetStops(message){
- state.stopsRequest++;state.origins=[];state.origin=null;state.openStop=null;
+ state.stopsRequest++;state.stopBatchToken++;
+ state.stopBatchResults.clear();state.lineRoutes.clear();
+ state.origins=[];state.origin=null;state.openStop=null;
+ id("sync15Stops").disabled=true;
+ id("stopBatchStatus").textContent="Selecione a origem para sincronizar previsões.";
  id("originTabs").replaceChildren();
  id("originInfo").hidden=true;
  id("stopList").replaceChildren(make("li","empty","Os pontos de cada origem aparecerão aqui."));
@@ -219,8 +223,8 @@ function groupStops(paradas){
   const g=groups.get(key);
   if(!g.seen.has(p.id)){
    g.seen.add(p.id);
-   const item={id:String(p.id)};
-   if(typeof p.nome==="string"&&p.nome.trim())item.nome=p.nome.trim().slice(0,120);
+   const item={id:String(p.id),nome:String(p.nome||"").trim().slice(0,180),
+     codigoSIU:String(p.codigoSIU||"").trim().slice(0,40)};
    if(Number.isFinite(p.lat)&&Number.isFinite(p.lon)){item.lat=p.lat;item.lon=p.lon;}
    g.stops.push(item);
   }
@@ -276,6 +280,11 @@ function selectOrigin(key){
  const group=state.origins.find(g=>g.key===key);
  if(!group)return;
  state.origin=key;state.openStop=null;
+ id("sync15Stops").disabled=false;
+ if(!state.stopBatchRunning){
+  const total=new Set(state.origins.flatMap(g=>g.stops.map(x=>x.id))).size;
+  id("stopBatchStatus").textContent="Linha toda: "+total+" pontos em "+state.origins.length+(state.origins.length===1?" origem":" origens")+", consultados em lotes de 15.";
+ }
  for(const tab of id("originTabs").children){
   const on=tab.dataset.origin===key;
   tab.setAttribute("aria-selected",String(on));tab.tabIndex=on?0:-1;
@@ -285,14 +294,16 @@ function selectOrigin(key){
  group.stops.forEach((stop,i)=>{
   const li=make("li","stop");
   const row=make("button","stop-row");
-  row.type="button";row.dataset.seq=String(i+1);row.dataset.stop=stop.id;row.setAttribute("aria-expanded","false");
+  row.type="button";row.dataset.seq=String(i+1);
+  row.dataset.stopId=stop.id;row.setAttribute("aria-expanded","false");
   const name=make("span","stop-name",stop.nome||"Ponto "+stop.id);
-  const pos=i===0?"Primeiro ponto da origem":i===group.stops.length-1?"Último ponto da origem":(i+1)+"º ponto";
-  name.append(make("small",null,(stop.nome?"Ponto "+stop.id+" · ":"")+pos));
+  name.append(make("small",null,"Código "+(stop.codigoSIU||stop.id)+" · "+(i+1)+"º ponto"));
+  const preview=make("small","stop-preview",state.stopBatchResults.get(stop.id)||"");
+  name.append(preview);
   row.append(name,make("span","stop-go","VER PREVISÃO ›"));
   const panel=make("div","stop-panel");panel.hidden=true;panel.id="stop-panel-"+stop.id+"-"+i;
   row.setAttribute("aria-controls",panel.id);
-  row.addEventListener("click",()=>toggleStop(stop.id,row,panel));
+  row.addEventListener("click",()=>toggleStop(stop,row,panel));
   li.append(row,panel);list.append(li);
  });
  renderOriginInfo();
@@ -311,6 +322,7 @@ function renderOriginInfo(){
  box.hidden=false;
 }
 async function toggleStop(stop,row,panel){
+ const stopId=stop.id;
  if(row.getAttribute("aria-expanded")==="true"){
   row.setAttribute("aria-expanded","false");panel.hidden=true;state.openStop=null;
   row.querySelector(".stop-go").textContent="VER PREVISÃO ›";
@@ -321,18 +333,18 @@ async function toggleStop(stop,row,panel){
   other.querySelector(".stop-go").textContent="VER PREVISÃO ›";
   document.getElementById(other.getAttribute("aria-controls")).hidden=true;
  }
- const token=Symbol(stop);state.openStop=token;
+ const token=Symbol(stopId);state.openStop=token;
  row.setAttribute("aria-expanded","true");panel.hidden=false;
  row.querySelector(".stop-go").textContent="FECHAR";
  panel.replaceChildren(make("div","empty","Consultando previsões do SIU…"));
  try{
-  const d=await api("/api/predictions?stop="+encodeURIComponent(stop));
+  const d=await api("/api/predictions?stop="+encodeURIComponent(stopId));
   if(state.openStop!==token)return;
   const results=make("div");
   const count=renderPredictions(results,d.previsoes);
-  panel.replaceChildren(results,stopTools(stop));
-  setShareHash(stop);
-  feedback(count?"Previsões do ponto "+stop+" consultadas no SIU.":"O SIU não informou previsão para o ponto "+stop+" agora.");
+  panel.replaceChildren(results,stopTools(stopId));
+  setShareHash(stopId);
+  feedback(count?"Previsões de "+(stop.nome||"ponto "+stopId)+" consultadas no SIU.":"O SIU não informou previsão para "+(stop.nome||"ponto "+stopId)+" agora.");
  }catch(e){
   if(state.openStop!==token)return;
   panel.replaceChildren(make("div","empty",e.message));
@@ -342,7 +354,7 @@ async function toggleStop(stop,row,panel){
 function allStops(){return state.origins.flatMap(g=>g.stops);}
 function currentOriginLabel(stopId){return state.origins.find(g=>g.stops.some(x=>x.id===stopId))?.label||"";}
 function openStopById(stopId){
- const row=id("stopList").querySelector('.stop-row[data-stop="'+CSS.escape(stopId)+'"]');
+ const row=id("stopList").querySelector('.stop-row[data-stop-id="'+CSS.escape(stopId)+'"]');
  if(!row)return false;
  if(row.getAttribute("aria-expanded")!=="true")row.click();
  row.scrollIntoView({behavior:"smooth",block:"center"});
@@ -525,7 +537,8 @@ async function loadLineMap(){
    }catch{}
    if(mapState.code!==code)return;
   }
-  mapState.routes=[...routes].slice(0,6);
+  for(const r of state.lineRoutes)routes.add(r);
+  mapState.routes=[...routes].slice(0,8);
   const bounds=[];
   const colors=["#f2c230","#7aa7ef","#6fd39a","#ff8a7a","#c79bff","#f5f2ea"];
   for(const [i,route] of mapState.routes.entries()){
@@ -596,6 +609,63 @@ function normLine(v){
  const t=plain(v).replace(/\s+/g,"");
  if(/^\d{1,2}$/.test(t))return t.padStart(3,"0");
  const m=t.match(/^(\d)([A-Z])$/);return m?"0"+m[1]+m[2]:t;
+}
+// Sincroniza a linha toda (todas as origens) em lotes de 15 pontos, uma consulta por vez.
+// O mesmo botão interrompe. Os itinerários desta linha encontrados alimentam o mapa.
+async function syncNext15Stops(){
+ if(state.stopBatchRunning){state.stopBatchToken++;id("stopBatchStatus").textContent="Parando após a consulta atual…";return;}
+ const seen=new Set(),queue=[];
+ for(const g of state.origins)for(const st of g.stops)if(!seen.has(st.id)){seen.add(st.id);queue.push(st);}
+ if(!queue.length)return;
+ if(document.hidden){id("stopBatchStatus").textContent="Abra esta aba para consultar as paradas.";return;}
+ state.stopBatchRunning=true;
+ const button=id("sync15Stops");button.textContent="■ Parar";
+ const token=++state.stopBatchToken,line=selectedLineNumber(),code=id("variantSelect").value;
+ const status=id("stopBatchStatus"),buses=new Set();
+ let completed=0,failed=0,withLine=0;
+ try{
+  for(let start=0;start<queue.length;start+=15){
+   const batch=queue.slice(start,start+15);
+   for(const stop of batch){
+    if(token!==state.stopBatchToken||document.hidden)break;
+    try{
+     const data=await api("/api/predictions?stop="+encodeURIComponent(stop.id));
+     if(token!==state.stopBatchToken)break;
+     const entries=(Array.isArray(data.previsoes)?data.previsoes:[]).filter(v=>v?.linha&&v.linha!=="Sem Dados");
+     const mine=entries.filter(v=>plain(v.linha)===line);
+     for(const v of mine){
+      if(validCode(String(v.itinerario??"")))state.lineRoutes.add(String(v.itinerario));
+      if(v.carro)buses.add(v.carro);
+     }
+     if(mine.length)withLine++;
+     const best=mine.find(v=>v.previsao)||entries.find(v=>v.previsao);
+     const label=!entries.length?"Sem previsão no SIU":
+      mine.length?"Linha "+line+": "+(best?.previsao||"sem tempo")+(best?.carro?" · carro "+best.carro:""):
+      "Só outras linhas: "+(best?"linha "+best.linha+" "+best.previsao:entries.length+" previsão(ões)");
+     state.stopBatchResults.set(stop.id,label);
+     const row=id("stopList").querySelector('.stop-row[data-stop-id="'+CSS.escape(stop.id)+'"]');
+     const preview=row?.querySelector(".stop-preview");
+     if(preview)preview.textContent=label;
+    }catch(e){
+     failed++;
+     state.stopBatchResults.set(stop.id,"Falha na consulta");
+    }
+    completed++;
+    status.textContent="Linha toda: "+completed+"/"+queue.length+" pontos (lote "+(Math.floor(start/15)+1)+" de "+Math.ceil(queue.length/15)+") · "+
+     withLine+" com previsão da linha "+line+" · "+failed+" falhas.";
+   }
+   if(token!==state.stopBatchToken||document.hidden)break;
+  }
+  if(token!==state.stopBatchToken)status.textContent="Sincronização interrompida em "+completed+"/"+queue.length+" pontos.";
+  else if(document.hidden)status.textContent="Pausado em "+completed+"/"+queue.length+" pontos porque a aba ficou em segundo plano.";
+  else status.textContent="Linha toda sincronizada: "+queue.length+" pontos · "+withLine+" com previsão da linha "+line+
+   (buses.size?" · carros a caminho: "+[...buses].slice(0,8).join(", "):" · nenhum carro identificado nas previsões")+" · "+failed+" falhas.";
+  if(state.lineRoutes.size&&mapState.code===code)void loadLineMap();
+ }finally{
+  state.stopBatchRunning=false;
+  button.textContent="↻ Sincronizar linha toda";
+  button.disabled=!state.origins.length;
+ }
 }
 async function loadVariant(){
  resetMap();
@@ -720,6 +790,7 @@ id("lineFilter").addEventListener("input",renderLineChoices);
 id("lineSelect").addEventListener("change",selectLine);
 id("variantSelect").addEventListener("change",loadVariant);
 id("refreshStops").addEventListener("click",loadStops);
+id("sync15Stops").addEventListener("click",syncNext15Stops);
 id("daySelect").addEventListener("change",renderSchedule);
 id("refreshSchedule").addEventListener("click",loadSchedule);
 id("checkStop").addEventListener("click",getStop);

@@ -111,6 +111,7 @@ footer{padding:20px 4px;font-size:11px;color:var(--dim);line-height:1.8}
 }
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
+.stops-batch-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:11px 0;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.stops-batch-controls small{font-size:11px;color:var(--muted);line-height:1.5;flex:1;min-width:160px}.stop-preview{color:var(--green-hi)!important;margin-top:5px!important;font-weight:800}
 /* Tema claro: legível no sol. Segue o sistema até a pessoa escolher no botão ☀/☾. */
 :root[data-theme="light"]{--bg:#f3efe6;--bg2:#e6dfd0;--panel:#fffdf8;--panel2:#f1ece1;--field:#ffffff;--line:#ddd5c4;--line2:#c4baa4;--text:#1a1c22;--muted:#454a57;--dim:#5f6472;--blue-hi:#1d4e9e;--green-hi:#1f6b40;--yellow-text:#7a5800;--head-bg:#fffdf8f2;--shadow:#3a2f1a1f;--err-bg:#fbe7e3;--err-line:#e0a49a;--err-text:#7a1d12;color-scheme:light}
 @media(prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f3efe6;--bg2:#e6dfd0;--panel:#fffdf8;--panel2:#f1ece1;--field:#ffffff;--line:#ddd5c4;--line2:#c4baa4;--text:#1a1c22;--muted:#454a57;--dim:#5f6472;--blue-hi:#1d4e9e;--green-hi:#1f6b40;--yellow-text:#7a5800;--head-bg:#fffdf8f2;--shadow:#3a2f1a1f;--err-bg:#fbe7e3;--err-line:#e0a49a;--err-text:#7a1d12;color-scheme:light}}

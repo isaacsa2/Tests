@@ -1,16 +1,16 @@
 "use strict";
 (function(root){
  const CONFIG=Object.freeze({
-  "15":Object.freeze({seconds:15,routeBatch:2,label:"15 s · rápido"}),
-  "30":Object.freeze({seconds:30,routeBatch:4,label:"30 s · equilibrado"}),
-  "60":Object.freeze({seconds:60,routeBatch:5,label:"60 s · econômico"})
+  "15":Object.freeze({seconds:15,routeBatch:10,label:"15 s · rápido"}),
+  "30":Object.freeze({seconds:30,routeBatch:10,label:"30 s · equilibrado"}),
+  "60":Object.freeze({seconds:60,routeBatch:10,label:"60 s · econômico"})
  });
  function getConfig(raw){
   return CONFIG[String(raw)]||CONFIG["30"];
  }
- function chooseRoutes(routes,buses,selectedId,cursor=0,batch=4,now=Date.now()){
+ function chooseRoutes(routes,buses,selectedId,cursor=0,batch=10,now=Date.now()){
   const all=[...new Set(Array.from(routes||[],String).filter(v=>/^[\w-]{1,32}$/.test(v)))];
-  const limit=Math.min(Math.max(0,Math.floor(batch)),6);
+  const limit=Math.min(Math.max(0,Math.floor(batch)),10);
   if(!limit||!all.length)return {ids:[],cursor:0};
   const keep=new Set(all),seen=new Set(),chosen=[];
   const add=id=>{

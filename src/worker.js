@@ -147,11 +147,15 @@ async function upstream(route,callback,ttl,ctx){
   inflight.set(route,promise);
   try{return await promise;}finally{inflight.delete(route);}
 }
-// Parada: nome e coordenadas só quando o SIU os envia e estão dentro da região.
+// Parada: o APK usa dt.end como título e dt.sent como origem; coordenadas só
+// quando o SIU as envia e estão dentro da região.
 function stop(x){
-  const out={id:String(x.cod),sentido:String(x.sent??x.sentido??"")};
-  const name=[x.nom,x.nome,x.desc,x.descricao,x.endereco,x.apelido].find(v=>typeof v==="string"&&v.trim());
-  if(name)out.nome=name.trim().slice(0,120);
+  const out={
+    id:String(x.cod).slice(0,40),
+    sentido:String(x.sent??x.sentido??"").trim().slice(0,120),
+    nome:String(x.end??x.desc??"").trim().slice(0,180),
+    codigoSIU:String(x.siu??"").trim().slice(0,40)
+  };
   for(const [la,lo] of [[x.lat,x.long??x.lon??x.lng],[x.coordY,x.coordX],[x.latitude,x.longitude]]){
     const lat=value(la),lon=value(lo);
     if(la!=null&&lo!=null&&local(lat,lon)){out.lat=lat;out.lon=lon;break;}
@@ -202,7 +206,7 @@ async function cachedSharedRead(key,seconds,loader,ctx){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-stops-coords-v8",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-favorites-map-history-v9",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
     try{
@@ -277,7 +281,9 @@ async function action(url,env,ctx){
     catch {}
     if(!success(d)||!array(d.paradas).length)
       d=await upstream("V3/buscarParadasPorLinhaComCoordenadas/"+n+"/0/"+city+"/retornoJSONH","retornoJSONH",21600,ctx);
-    return {paradas:success(d)?array(d.paradas).filter(x=>x?.cod!=null).map(stop):[]};
+    return {paradas:success(d)?array(d.paradas)
+      .filter(x=>x?.cod!=null&&x.cod!=="Sem Dados")
+      .slice(0,2500).map(stop):[]};
   }
   if(p==="/api/diagnostics/stops"){
     // Mostra apenas o formato dos campos devolvidos pelo SIU, para confirmar

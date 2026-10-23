@@ -22,7 +22,7 @@ globalThis.fetch=async function(url){
   {cod:"1",origem:"Terminal Central",tipoDia:"Dia util",horario:"99:99"}
  ];}
  else if(u.includes("/retornaSublinhasDaLinha/")){d.subLinhas=[{cod:"120",sgl:"001A",nom:"Variante"}];}
- else if(u.includes("/buscarParadasPorLinha/")){d.paradas=[{cod:"315",sent:"Centro"},{cod:"316",sent:"Centro",nom:" Av. Getúlio Vargas ",lat:"-12,2601",long:"-38,9655"},{cod:"317",sent:"Bairro",coordY:-23.5,coordX:-46.6}];}
+ else if(u.includes("/buscarParadasPorLinha/")){d.paradas=[{cod:"315",sent:"Centro",end:"AVENIDA SENHOR DOS PASSOS",siu:"P00315"},{cod:"316",sent:"Centro"},{cod:"318",sent:"Centro",lat:"-12,2601",long:"-38,9655"},{cod:"317",sent:"Bairro",coordY:-23.5,coordX:-46.6}];}
  else if(u.includes("/buscarParadasPorLinhaComCoordenadas/")){d.paradas=[{cod:"315",sent:"Centro",lat:-12.25,long:-38.96}];}
  else if(u.includes("/buscarPrevisoes/")){d.previsoes=[{codItinerario:"90",sgLin:"001",numVeicGestor:"400",prev:"5 min",apelidoLinha:"Terminal Central"}];}
  else if(u.includes("/retornaVeiculosMapa/")){d.veiculos=[{lat:-12.25,long:-38.95,numVeicGestor:"400",descricao:"001",direcao:45}];}
@@ -76,13 +76,18 @@ assert.equal((await get("/api/schedule?line=../../admin"))[0],400);
 const [,caps]=await get("/api/status");assert.ok(caps.recursos.includes("schedule"));
 
 [,data]=await get("/api/stops?line=12");assert.equal(data.paradas[0].id,"315");
-assert.deepEqual(data.paradas[0],{id:"315",sentido:"Centro"},"Sem nome/coordenada inventados");
-assert.deepEqual(data.paradas[1],{id:"316",sentido:"Centro",nome:"Av. Getúlio Vargas",lat:-12.2601,lon:-38.9655});
-assert.equal(data.paradas[2].lat,undefined,"Coordenadas fora de Feira de Santana são descartadas");
+assert.equal(data.paradas[0].nome,"AVENIDA SENHOR DOS PASSOS");
+assert.equal(data.paradas[0].codigoSIU,"P00315");
+assert.equal(data.paradas[0].sentido,"Centro");
+assert.equal(data.paradas[1].nome,"","Unknown stop names must remain missing");
+assert.equal(data.paradas[0].lat,undefined,"Sem coordenada inventada");
+assert.equal(data.paradas[2].lat,-12.2601);assert.equal(data.paradas[2].lon,-38.9655);
+assert.equal(data.paradas[3].lat,undefined,"Coordenadas fora de Feira de Santana são descartadas");
 [,data]=await get("/api/diagnostics/stops?line=12");
-assert.equal(data.diagnostico.buscarParadasPorLinha.paradas,3);
+assert.equal(data.diagnostico.buscarParadasPorLinha.paradas,4);
 assert.equal(data.diagnostico.buscarParadasPorLinhaComCoordenadas.interpretado.lat,-12.25);
 assert.equal((await get("/api/diagnostics/stops?line=../x"))[0],400);
+[,data]=await get("/api/stops?line=12");
 assert.ok(requests.some(x=>x.includes("V3/buscarParadasPorLinha/12/0/null/retornoJSON")));
 [,data]=await get("/api/predictions?stop=315");assert.equal(data.previsoes[0].itinerario,"90");assert.equal(data.previsoes[0].previsao,"5 min");
 [,data]=await get("/api/vehicles?itinerary=90");assert.equal(data.veiculos[0].id,"400");
