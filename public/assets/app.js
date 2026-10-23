@@ -93,6 +93,20 @@ function vehicleView(v,demonstration=false){
  detail.innerHTML='<div class="detail-top"><div><div class="panel-eyebrow">IDENTIFICAÇÃO</div><div class="detail-id" id="detail-id"></div></div><span class="detail-flag" id="detail-flag"></span></div><div class="detail-grid"><div><span>LINHA INFORMADA</span><strong id="detail-line"></strong></div><div><span>ITINERÁRIO</span><strong id="detail-route"></strong></div><div><span>LATITUDE</span><strong id="detail-lat"></strong></div><div><span>LONGITUDE</span><strong id="detail-lon"></strong></div><div><span>DIREÇÃO INFORMADA</span><strong id="detail-direction"></strong></div><div><span>ÚLTIMA CONSULTA</span><strong id="detail-time"></strong></div></div><p class="detail-footnote">Posição retornada pelo serviço ou restaurada do armazenamento local. O instante da medição GPS pode ser diferente do horário da consulta.</p>';
  const fields={"detail-id":"CARRO "+v.id,"detail-line":v.linha||"Não informada","detail-route":v.itinerario||"Não informado","detail-lat":Number(v.lat).toFixed(5),"detail-lon":Number(v.lon).toFixed(5),"detail-direction":Number.isFinite(v.rumo)?v.rumo+"°":"Não informado","detail-time":demonstration?"Dados simulados":stamp(v.lastSeen)};
  for(const [id,text] of Object.entries(fields))el(id).textContent=text;
+ const fleet=globalThis.FeiraBusFleet?.lookup(v.id);
+ if(fleet?.links?.length){
+  const section=document.createElement("div");section.className="cco-fleet-links";
+  const title=document.createElement("span");title.textContent="ÔNIBUS BRASIL · REFERÊNCIAS FOTOGRÁFICAS";
+  section.append(title);
+  const status=document.createElement("small");
+  status.textContent=fleet.empresa?fleet.empresa+" (vínculo histórico; não comprova operador atual)":"Empresa não identificada para esse prefixo";
+  section.append(status);
+  for(const link of fleet.links){
+   const a=document.createElement("a");a.href=link.url;a.target="_blank";a.rel="noopener noreferrer";a.textContent=link.label+" ↗";
+   section.append(a);
+  }
+  detail.append(section);
+ }
  const flag=el("detail-flag");flag.className="detail-flag"+(fresh?" recent":demonstration?" demo":"");
  flag.textContent=demonstration?"DEMONSTRAÇÃO":old?"HISTÓRICO / ANTIGO":"CONSULTADO RECENTEMENTE";
  el("detailRefresh").disabled=demonstration;
@@ -259,7 +273,7 @@ function paint(){
 }
 function fit(){const vals=s.mode==="demo"?demo:[...s.buses.values()];if(!vals.length)return;map.fitBounds(L.latLngBounds(vals.map(v=>[v.lat,v.lon])).pad(.20),{maxZoom:14});}
 async function api(path,urgent=false){
- if(!urgent){const wait=Math.max(0,2500-(Date.now()-previousRequest));if(wait)await delay(wait);}
+ if(!urgent){const wait=Math.max(0,1600-(Date.now()-previousRequest));if(wait)await delay(wait);}
  previousRequest=Date.now();
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
  try {

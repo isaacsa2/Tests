@@ -23,3 +23,5 @@
 /* CCO sem CARTO: recolorir somente a camada raster do OpenStreetMap.
    Marcadores, controles, legendas e atribuição permanecem intactos. */
 .cco-map-dark .leaflet-tile-pane{filter:grayscale(.75) invert(1) hue-rotate(180deg) brightness(.75) contrast(1.12)}
+
+.cco-fleet-links{border-top:1px solid #2c4961;padding-top:12px;margin-top:14px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}.cco-fleet-links span{font-size:9px;letter-spacing:1px;font-weight:850;color:#82a7c8}.cco-fleet-links small{color:#9fbed5;font-size:10px}.cco-fleet-links a{padding:7px 10px;font-size:11px;background:#133e58;border-radius:6px;border:1px solid #2b6c8b;text-decoration:none;color:#a7e6ff}

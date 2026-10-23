@@ -1,0 +1,30 @@
+{
+  "name": "FeiraBus Passageiro - Feira de Santana",
+  "short_name": "FeiraBus",
+  "description": "Horários programados e previsões de parada do SIU de Feira de Santana, com consulta de ônibus por prefixo",
+  "lang": "pt-BR",
+  "start_url": "/passageiro.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#081526",
+  "theme_color": "#071827",
+  "icons": [
+    {
+      "src": "/assets/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

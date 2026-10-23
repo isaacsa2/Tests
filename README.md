@@ -139,3 +139,13 @@ A página usa bibliotecas de mapa externas e requer conexão para carregar os ma
 - Observe a política oficial do servidor OSM: https://operations.osmfoundation.org/policies/tiles/ (atribuição, cache do navegador e sem prefetch/bulk download). Para tráfego público elevado, migrar para tiles próprios ou serviço autorizado.
 
 **Os endpoints SIU e a memória IndexedDB não foram alterados.**
+
+## FeiraBus Passageiro (PWA) e horários SIU — 23/10/2026
+
+- Acesse `/passageiro.html` pelo CCO. O aplicativo usa Web App Manifest e Service Worker, pode ser instalado no Android quando o navegador oferece instalação; não exige loja, API key, banco novo ou pagamento.
+- `/api/schedule?line=<cod>` consulta o endpoint oficial `V3/retornaQroLinha/{cod}/0/null/retornoJSON`, descoberto no APK SIU Mobile em `assets/www/retornaQroLinha.html`. Mostra `origem`, `tipoDia`, `horario` (partidas programadas), sem alegar atraso/adiantamento de veículos específicos.
+- A previsão por código de parada agora inclui o texto `prev` e o destino/descrição `apelidoLinha` do SIU, retirados do comportamento do APK; não inventa minutos.
+- Pesquisa por número do carro exibe posição disponível via SIU e links de referência ao Ônibus Brasil. Apenas veículos individuais publicamente indexados têm empresa histórica pré-associada. Outros recebem links de pesquisa nos índices Rosa e São João; fotos não são copiadas ou redistribuídas.
+- Serviço de página offline só guarda **arquivos estáticos**, nunca respostas `/api/*`. GPS/horários/ETA dependem de internet; não gera histórico operacional fictício.
+- A varredura no CCO reduz o intervalo mínimo entre chamadas sequenciais do navegador de 2500 para 1600 ms. O Worker mantém seu espaçamento best effort de 1300 ms, cache e deduplicação. Isso pode reduzir espera quando a latência da API permitir; não significa ganho percentual garantido nem solicitações paralelas ilimitadas.
+- Antes de rotular atrasos, será necessário relacionar viagem + origem + tipo de dia + identificador do carro + hora real de saída/passagem, validada em campo e em fontes autorizadas. A API atual só oferece a tabela de partidas e previsões por parada.
