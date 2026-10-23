@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Dashboard Cloudflare Workers SIU Feira de Santana",
   "scripts": {
-    "test": "node --check src/worker.js && node --check public/assets/app.js && node --check public/assets/memory.js && node test-worker.mjs && node test-memory.mjs",
+    "test": "node --check src/worker.js && node --check public/assets/app.js && node --check public/assets/memory.js && node test-worker.mjs && node test-memory.mjs && node test-ui.mjs",
     "dev": "npx wrangler dev",
     "deploy": "npx wrangler deploy"
   },

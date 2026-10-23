@@ -1,43 +1,114 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FeiraBus • Monitor de ônibus de Feira de Santana</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#080f1d">
+<meta name="description" content="FeiraBus CCO: monitoramento independente das linhas, itinerários e posições disponibilizadas pelo SIU de Feira de Santana.">
+<title>FeiraBus CCO | Centro de Controle Operacional</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoB6xZaSzbgwRpk=" crossorigin="">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-<header><div class="logo">F<span>●</span> FeiraBus <small>MONITOR</small></div><span class="city">Feira de Santana · Bahia</span></header>
-<main>
-<section class="intro"><div><p class="eyebrow">PAINEL DE TRANSPORTE • PESQUISA INDEPENDENTE</p><h1>Ônibus no mapa.<br><em>A cidade inteira.</em></h1><p>Consulte as linhas disponíveis no SIU, acompanhe os carros encontrados e pesquise diretamente pelo número de um veículo.</p></div><div class="pill" id="stateTag">MODO DEMONSTRAÇÃO</div></section>
-<section class="bar" aria-label="Monitoramento">
-<button id="start" class="primary">Varrer linhas da cidade</button>
-<button id="stop" disabled>Interromper</button>
-<button id="clearMemory" type="button" disabled>Limpar memória</button>
-<div class="memoryInfo" aria-live="polite"><span>MEMÓRIA LOCAL</span><strong id="memoryState">Carregando...</strong></div>
-<label class="toggle"><input id="wide" type="checkbox" checked> Varredura ampliada de todas as paradas</label>
-<label class="toggle"><input id="poll" type="checkbox"> Atualizar GPS ao concluir</label>
-<button id="export">Exportar itinerários (GeoJSON)</button>
-</section>
-<p class="notice" id="notice" role="status">Os marcadores iniciais são fictícios. A varredura só começa quando você clicar em iniciar. O serviço externo ainda não foi validado.</p>
-<div class="metrics"><article><span>CARROS LOCALIZADOS</span><strong id="totalCars">3</strong><small id="freshCars">Exemplos fictícios</small></article><article><span>LINHAS DISPONÍVEIS</span><strong id="totalLines">—</strong><small>Conforme resposta do SIU</small></article><article><span>ITINERÁRIOS DESCOBERTOS</span><strong id="totalRoutes">—</strong><small>Extraídos das previsões</small></article><article><span>COBERTURA</span><strong id="coverage">—</strong><small id="stage">Aguardando consulta real</small></article></div>
-<div class="workspace">
-<aside class="panel side">
-<h2>Encontrar ônibus</h2>
-<label for="busSearch">Pesquisar nos carros/linhas já carregados</label>
-<input id="busSearch" type="search" placeholder="Número do carro ou da linha">
-<label for="directNumber">Pesquisar carro diretamente na API</label>
-<div class="find"><input id="directNumber" type="search" placeholder="Ex.: 400" inputmode="numeric"><button id="direct" class="primary">Localizar</button></div>
-<p class="hint" id="directResult">A consulta direta também pode encontrar carros fora das linhas carregadas.</p>
-<div class="list-head"><b id="listTitle">Veículos</b><span id="listCount">3</span></div>
-<div class="list" id="vehicleList"></div>
-</aside>
-<section class="panel mapPanel"><div class="mapHead"><div><h2>Mapa de Feira de Santana</h2><small id="mapInfo">Marcadores de demonstração (não reais)</small></div><button id="fit">Enquadrar veículos</button></div><div id="map"></div><div class="legend">● Azul: veículo localizado · Cinza: sem atualização recente · Trajetos obtidos sob demanda</div></section>
+<header class="topbar">
+ <div class="brand">
+  <div class="brand-mark" aria-hidden="true"><span class="mark-line"></span>FB</div>
+  <div class="brand-copy"><strong>FEIRABUS <span>CCO</span></strong><small>CENTRO DE CONTROLE OPERACIONAL</small></div>
+ </div>
+ <div class="topbar-center"><span class="location-marker" aria-hidden="true">◆</span><span>FEIRA DE SANTANA <small>BA • BRASIL</small></span></div>
+ <div class="topbar-right">
+  <div class="system-status" id="stateTag"><span class="status-dot"></span>MODO DEMONSTRAÇÃO</div>
+  <div class="clock-box"><strong id="clockNow">--:--:--</strong><small id="clockDate">--/--/----</small></div>
+ </div>
+</header>
+<div class="shell">
+ <nav class="rail" aria-label="Navegação da central">
+  <div class="rail-head">CCO <span>01</span></div>
+  <a class="rail-link active" href="#overview" aria-label="Visão geral"><span aria-hidden="true">▦</span><small>GERAL</small></a>
+  <a class="rail-link" href="#mapa" aria-label="Mapa de operações"><span aria-hidden="true">◎</span><small>MAPA</small></a>
+  <a class="rail-link" href="#frota" aria-label="Frota monitorada"><span aria-hidden="true">▤</span><small>FROTA</small></a>
+  <a class="rail-link" href="#eventos" aria-label="Eventos de monitoramento"><span aria-hidden="true">≡</span><small>EVENTOS</small></a>
+  <a class="rail-link" href="#config" aria-label="Configurações de varredura"><span aria-hidden="true">⚙</span><small>AJUSTES</small></a>
+  <div class="rail-bottom">FSA<br>BA</div>
+ </nav>
+ <main class="main" id="overview">
+  <section class="page-heading">
+   <div class="page-title"><div class="section-kicker"><span class="kicker-line"></span> PAINEL DE OPERAÇÕES <span class="separator">/</span> FEIRA DE SANTANA</div><h1>Visão geral da operação</h1><p>Monitoramento das posições publicadas pelo SIU, histórico local e descoberta de itinerários.</p></div>
+   <div class="heading-actions">
+    <div class="source-pill"><span class="source-dot"></span><span id="sourceState">Fonte SIU • aguardando consulta</span></div>
+    <button id="start" class="btn btn-primary" disabled><span aria-hidden="true">▶</span> Varrer linhas da cidade</button>
+    <button id="stop" class="btn btn-danger" disabled>■ Interromper</button>
+   </div>
+  </section>
+  <div class="notice" id="notice" role="status" aria-live="polite">Dados de demonstração até a primeira consulta. A varredura deve ser iniciada manualmente.</div>
+  <section class="kpis" aria-label="Indicadores de monitoramento">
+   <article class="kpi kpi-primary"><div class="kpi-head"><span>VEÍCULOS CONHECIDOS</span><span class="kpi-glyph">▥</span></div><div class="kpi-number" id="totalCars">3</div><p id="freshCars">Exemplos fictícios</p><span class="kpi-accent"></span></article>
+   <article class="kpi"><div class="kpi-head"><span>CONSULTADOS RECENTEMENTE</span><span class="kpi-glyph blue">◉</span></div><div class="kpi-number" id="recentCount">—</div><p>Consultas nesta sessão, até 5 min</p></article>
+   <article class="kpi"><div class="kpi-head"><span>HISTÓRICOS / ANTIGOS</span><span class="kpi-glyph amber">◷</span></div><div class="kpi-number" id="oldCount">—</div><p>Posição não confirmada recentemente</p></article>
+   <article class="kpi"><div class="kpi-head"><span>LINHAS NO CATÁLOGO</span><span class="kpi-glyph">⇄</span></div><div class="kpi-number" id="totalLines">—</div><p>Informadas pela API do SIU</p></article>
+   <article class="kpi"><div class="kpi-head"><span>ITINERÁRIOS</span><span class="kpi-glyph">⌁</span></div><div class="kpi-number" id="totalRoutes">—</div><p>Identificadores descobertos</p></article>
+   <article class="kpi kpi-progress"><div class="kpi-head"><span>VARREDURA DAS LINHAS</span><span class="kpi-glyph">◴</span></div><div class="kpi-number" id="coverage">—</div><div class="mini-progress"><div id="progressFill" class="mini-progress-fill"></div></div><p id="stage">Aguardando consulta</p></article>
+  </section>
+  <div class="ops-grid">
+   <div class="ops-main">
+    <section class="panel map-panel" id="mapa" aria-label="Mapa operacional">
+     <div class="panel-heading map-heading">
+      <div><div class="panel-eyebrow"><span class="live-indicator"></span> GEOLOCALIZAÇÃO <span class="divider-slash">/</span> SIU MOBILE</div><h2>Mapa operacional</h2><small id="mapInfo">Veículos fictícios — demonstração</small></div>
+      <div class="map-actions">
+       <label class="sr-only" for="mapTheme">Estilo do mapa</label><select id="mapTheme" class="compact-select"><option value="dark">Escuro</option><option value="streets">Ruas</option></select>
+       <button id="fit" class="btn btn-ghost" type="button" title="Enquadrar veículos">⊞ <span>Enquadrar</span></button>
+       <button id="mapFullscreen" class="btn btn-ghost" type="button" title="Expandir mapa" aria-pressed="false">⛶ <span>Expandir</span></button>
+      </div>
+     </div>
+     <div class="map-wrap"><div id="map"></div><div class="map-corner">FSA / CENTRAL DE OPERAÇÕES <span>●</span> <span id="mapMode">SIMULAÇÃO</span></div></div>
+     <div class="map-bottom"><div class="legend-group"><span><i class="dot recent"></i> Consultado há até 5 min</span><span><i class="dot old"></i> Histórico / desatualizado</span><span><i class="dot demo"></i> Demonstração</span></div><span class="map-note">Horário de consulta ≠ horário da medição GPS</span></div>
+    </section>
+    <section class="panel activity-panel" id="eventos">
+     <div class="panel-heading"><div><div class="panel-eyebrow">MONITORAMENTO DA SESSÃO</div><h2>Eventos e diagnóstico</h2></div><span class="panel-tag">NÃO SÃO OCORRÊNCIAS DE TRÂNSITO</span></div>
+     <div class="activity-body"><div class="activity-events" id="eventList"><p class="muted">Nenhum evento registrado.</p></div><div class="session-stats"><div><span>FALHAS DE CONSULTA</span><strong id="errorCount">0</strong></div><div><span>FASE ATUAL</span><strong id="phaseLabel">Aguardando</strong></div><div><span>ÚLTIMO CHECKPOINT</span><strong id="checkpointTime">—</strong></div></div></div>
+    </section>
+   </div>
+   <aside class="ops-side" id="frota">
+    <section class="panel fleet-panel">
+     <div class="panel-heading fleet-heading"><div><div class="panel-eyebrow">MONITORAMENTO DE FROTA</div><h2>Veículos <span class="fleet-count" id="listCount">3</span></h2></div><span class="panel-tag">SIU / GPS</span></div>
+     <div class="fleet-search">
+      <label for="busSearch">Buscar na frota conhecida</label>
+      <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="busSearch" type="search" placeholder="Nº do carro, linha ou itinerário" autocomplete="off"></div>
+      <div class="filter-row">
+       <label class="sr-only" for="fleetStatus">Filtrar por atualização</label><select id="fleetStatus"><option value="all">Todos os status</option><option value="recent">Consultados recentemente</option><option value="old">Históricos / antigos</option></select>
+       <label class="sr-only" for="fleetLine">Filtrar por linha</label><select id="fleetLine"><option value="">Todas as linhas</option></select>
+      </div>
+      <label for="directNumber">Consultar veículo diretamente no SIU</label>
+      <div class="direct-row"><input id="directNumber" type="search" placeholder="Número do veículo" inputmode="numeric"><button id="direct" class="btn btn-primary" type="button">Localizar</button></div>
+      <p id="directResult" class="hint">A pesquisa direta pode localizar veículos fora das linhas já examinadas.</p>
+     </div>
+     <div class="fleet-table-head"><span id="listTitle">VEÍCULO / LINHA</span><span>ATUALIZAÇÃO</span></div>
+     <div class="list" id="vehicleList" aria-label="Veículos encontrados"></div>
+     <div class="fleet-foot">Selecione um veículo para abrir a ficha operacional. <span>Máx. 300 na lista</span></div>
+    </section>
+    <section class="panel detail-panel" id="detalhe">
+     <div class="panel-heading"><div><div class="panel-eyebrow">CONSULTA INDIVIDUAL</div><h2>Ficha do veículo</h2></div><span class="panel-tag">DETALHES</span></div>
+     <div id="vehicleDetail" class="vehicle-detail"><div class="empty-detail"><span>◎</span><strong>Nenhum veículo selecionado</strong><p>Escolha um carro na lista ou clique em um marcador no mapa para inspecionar sua última posição conhecida.</p></div></div>
+     <div class="detail-actions"><button id="detailRefresh" type="button" class="btn btn-ghost" disabled>↻ Consultar novamente</button><button id="copyCoords" type="button" class="btn btn-ghost" disabled>⧉ Coordenadas</button></div>
+    </section>
+   </aside>
+  </div>
+  <section class="panel settings-panel" id="config" aria-label="Controle e configurações da varredura">
+   <div class="panel-heading"><div><div class="panel-eyebrow">FERRAMENTAS DA CENTRAL</div><h2>Controle de coleta e memória</h2></div><span class="panel-tag">DADOS LOCAIS</span></div>
+   <div class="settings-body">
+    <label class="check-option"><input id="wide" type="checkbox" checked><span><strong>Varredura ampliada</strong><small>Inclui paradas adicionais e sublinhas</small></span></label>
+    <label class="check-option"><input id="poll" type="checkbox"><span><strong>Reconsultar itinerários</strong><small>Após concluir, enquanto a aba permanecer aberta</small></span></label>
+    <button id="export" class="btn btn-ghost" type="button">↧ Exportar itinerários GeoJSON</button>
+    <button id="clearMemory" class="btn btn-subtle-danger" type="button" disabled>✕ Limpar memória</button>
+    <div class="memoryInfo" aria-live="polite"><span>MEMÓRIA LOCAL • INDEXEDDB</span><strong id="memoryState">Carregando...</strong></div>
+   </div>
+  </section>
+  <p class="disclaimer">Painel independente de observação de dados do SIU Mobile. Não é uma central oficial nem apresenta ocorrências operacionais verificadas. Os totais refletem apenas os veículos e itinerários encontrados nas consultas disponíveis, não a frota integral. Localização armazenada é histórica; a data exibida é a da consulta e não comprova atualização do GPS do veículo. A memória fica neste navegador e não sincroniza entre aparelhos. A varredura não funciona com a página fechada. Exportações geográficas permanecem em escala real, para conversão posterior ao OMSI 1:2.</p>
+ </main>
 </div>
-<p class="disclaimer">A varredura percorre linhas e paradas que o SIU disponibilizar, de forma sequencial e com cache. Carros inativos ou não expostos pela API podem não aparecer. A hora exibida é da consulta, não necessariamente da leitura GPS. O histórico fica salvo apenas neste navegador (IndexedDB), podendo ser removido nas configurações do navegador ou por falta de espaço; em outro aparelho não há sincronização. A varredura só faz consultas enquanto esta página estiver aberta. Dados e rotas reais mantêm escala geográfica; 1:2 será aplicado apenas na conversão para OMSI.</p>
-</main>
-<footer>Protótipo independente, não afiliado à TACOM nem à Prefeitura. © Dados cartográficos: <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Não publique informações sensíveis.</footer>
+<footer class="footer"><span>FEIRABUS / CCO · PROTÓTIPO INDEPENDENTE</span><span>Dados cartográficos: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Basemap: CARTO / OSM</span></footer>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
 <script src="/assets/memory.js" defer></script>
 <script src="/assets/app.js" defer></script>
-</body></html>
+</body>
+</html>
