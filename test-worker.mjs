@@ -75,6 +75,12 @@ const [,caps]=await get("/api/status");assert.ok(caps.recursos.includes("schedul
 assert.ok(requests.some(x=>x.includes("V3/buscarParadasPorLinha/12/0/null/retornoJSON")));
 [,data]=await get("/api/predictions?stop=315");assert.equal(data.previsoes[0].itinerario,"90");assert.equal(data.previsoes[0].previsao,"5 min");
 [,data]=await get("/api/vehicles?itinerary=90");assert.equal(data.veiculos[0].id,"400");
+assert.match(data.veiculos[0].consultadoEm,/^20\d\d-/);
+const lastOriginCall=requests.filter(x=>x.includes("/retornaVeiculosMapa/")).length;
+const siuStamp=data.veiculos[0].consultadoEm;
+[,data]=await get("/api/vehicles?itinerary=90");
+assert.equal(data.veiculos[0].consultadoEm,siuStamp,"Cached GPS must retain the upstream fetch timestamp");
+assert.equal(requests.filter(x=>x.includes("/retornaVeiculosMapa/")).length,lastOriginCall);
 [,data]=await get("/api/vehicle?number=400");assert.equal(data.veiculos[0].id,"400");
 [,data]=await get("/api/geometry?itinerary=90");assert.equal(data.geometry.coordinates.length,2);
 assert.equal((await get("/api/vehicle?number=../../admin"))[0],400);

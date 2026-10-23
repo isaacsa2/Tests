@@ -4,7 +4,9 @@ const el=id=>document.getElementById(id), delay=ms=>new Promise(r=>setTimeout(r,
 const demo=[{id:"EX-101",linha:"Demonstração",lat:-12.260,lon:-38.966},{id:"EX-202",linha:"Demonstração",lat:-12.272,lon:-38.957},{id:"EX-303",linha:"Demonstração",lat:-12.251,lon:-38.978}];
 const s={mode:"demo",running:false,stop:false,lines:[],buses:new Map(),routes:new Set(),scanned:new Set(),done:0,errors:0,poll:false,geometry:new Map(),phase:"new",nextLineIndex:0,secondary:[],secondaryIndex:0,wide:true};
 const memory=globalThis.FeiraBusMemory;
+const GPS=globalThis.FeiraBusGps;
 const checkedThisVisit=new Set();
+let gpsTimer=null,gpsBusy=false,gpsCursor=0,gpsFailCycles=0;
 let memoryReady=false,memoryAvailable=false,saveTimer=null,previousRequest=0;
 let cloudSyncBusy=false;
 const map=L.map("map",{zoomControl:true}).setView([-12.265,-38.965],12);
@@ -135,7 +137,7 @@ function snapshot(){
   version:1,phase:s.phase,lines:s.lines,buses:[...s.buses.values()].map(({checkedSession,...v})=>v),
   routes:[...s.routes],scanned:[...s.scanned],done:s.done,errors:s.errors,
   nextLineIndex:s.nextLineIndex,secondary:s.secondary,secondaryIndex:s.secondaryIndex,wide:s.wide,
-  pollRequested:el("poll").checked
+  pollRequested:el("poll").checked,gpsInterval:GPS.getConfig(el("gpsInterval").value).seconds
  };
 }
 function memoryLabel(label){el("memoryState").textContent=label;}
@@ -173,6 +175,7 @@ async function restore(){
    s.secondaryIndex=Math.min(s.secondary.length,Math.max(0,Number(data.secondaryIndex)||0));
    s.wide=data.wide!==false;s.phase=["quick","wide","done"].includes(data.phase)?data.phase:"new";
    el("wide").checked=s.wide;el("poll").checked=data.pollRequested===true;
+   el("gpsInterval").value=String(GPS.getConfig(data.gpsInterval).seconds);
    if(s.lines.length||s.buses.size||s.routes.size){
     s.mode="memory";
     tag("MEMÓRIA LOCAL · NÃO É GPS AO VIVO");
@@ -188,6 +191,7 @@ async function restore(){
  }finally{
   memoryReady=true;buttonState();paint();
   void hydrateSharedMemory();
+  if(el("poll").checked)startGpsPolling();
  }
 }
 async function hydrateSharedMemory(){
@@ -217,6 +221,7 @@ async function hydrateSharedMemory(){
   if(!s.running)eventLog("Memória compartilhada D1 sincronizada: "+imported+" veículos novos, "+res.itinerarios.length+" itinerários conhecidos.");
   if(imported&&memoryAvailable)scheduleSave();
   paint();
+  if(el("poll").checked&&!s.poll)startGpsPolling();
  }catch(e){
   el("d1State").textContent="Indisponível";
   if(!s.running)eventLog("D1 não disponível: "+e.message+". Memória local e SIU continuam disponíveis.","warn");
@@ -234,7 +239,11 @@ function uniqueVehicle(v){
  if(!v||!v.id||!Number.isFinite(Number(v.lat))||!Number.isFinite(Number(v.lon)))return;
  const key=String(v.id).trim();if(!key)return;
  const old=s.buses.get(key);
- s.buses.set(key,Object.assign({},old||{},v,{id:key,lastSeen:Date.now()}));
+ const fetched=Date.parse(String(v.consultadoEm||""));
+ const current=Date.now();
+ const lastSeen=Number.isFinite(fetched)&&fetched>0&&fetched<=current+60000?Math.min(current,fetched):current;
+ if(Number(old?.lastSeen)>lastSeen)return;
+ s.buses.set(key,Object.assign({},old||{},v,{id:key,lastSeen}));
  checkedThisVisit.add(key);scheduleSave();
 }
 function paint(){
@@ -317,10 +326,10 @@ async function api(path,urgent=false){
   return data;
  }finally{clearTimeout(timer);}
 }
-async function getVehicles(route){
+async function getVehicles(route,repaint=true){
  const d=await api("/api/vehicles?itinerary="+encodeURIComponent(route));
  for(const v of d.veiculos||[])uniqueVehicle(v);
- paint();
+ if(repaint)paint();
 }
 async function scanStop(id){
  if(s.stop||s.scanned.has(id))return;
@@ -344,7 +353,7 @@ async function run(){
  const resume=isResumable();
  // Só reiniciamos o checkpoint após obter um catálogo válido.
  // Um erro temporário na API não pode apagar rotas já descobertas.
- s.running=true;s.stop=false;s.poll=false;s.mode="live";buttonState();
+ pauseGpsPolling();s.running=true;s.stop=false;s.mode="live";buttonState();
  tag("CONSULTANDO SIU • POSIÇÕES RECÉM-CONSULTADAS");
  try{
   if(!resume){
@@ -423,7 +432,7 @@ async function run(){
   if(s.stop)say("Varredura interrompida. Progresso salvo: "+s.done+"/"+s.lines.length+" linhas. Pode retomar mais tarde.");
   else if(s.phase==="done"){
    say("Varredura concluída. "+s.buses.size+" carros conhecidos e "+s.routes.size+" itinerários. Os dados históricos permanecem salvos neste navegador.");
-   if(el("poll").checked){s.poll=true;setTimeout(refresh,90000);}
+   if(el("poll").checked)eventLog("Varredura concluída; iniciando monitoramento GPS em lotes.");
   }
  }catch(e){
   say("Falha no SIU: "+e.message+". Progresso anterior preservado; tente novamente.",true);
@@ -431,15 +440,78 @@ async function run(){
   s.running=false;
   await checkpoint();
   buttonState();paint();
+  if(el("poll").checked)startGpsPolling();
  }
 }
-async function refresh(){
- if(!s.poll||s.running)return;
+function gpsInfo(label){el("gpsState").textContent=label;}
+function pauseGpsPolling(){
+ s.poll=false;
+ if(gpsTimer!==null){clearTimeout(gpsTimer);gpsTimer=null;}
+}
+function scheduleGpsNext(){
+ if(!s.poll||s.running||document.hidden)return;
+ if(gpsTimer!==null)clearTimeout(gpsTimer);
+ const cfg=GPS.getConfig(el("gpsInterval").value);
+ const delay=Math.min(120000,cfg.seconds*1000*Math.min(4,2**Math.floor(gpsFailCycles/2)));
+ gpsTimer=setTimeout(()=>{gpsTimer=null;void refresh();},delay);
+ gpsInfo("Monitoramento ativado · próxima rodada em "+Math.ceil(delay/1000)+" s · "+
+  (s.routes.size||0)+" itinerários conhecidos.");
+}
+function startGpsPolling(){
+ if(!el("poll").checked){pauseGpsPolling();gpsInfo("GPS automático desligado.");return;}
+ if(!memoryReady||s.running){gpsInfo("GPS aguardando término da varredura.");return;}
+ if(document.hidden){pauseGpsPolling();gpsInfo("GPS pausado: página em segundo plano.");return;}
+ if(!s.routes.size&&!s.buses.has(String(selectedVehicleId))){
+  pauseGpsPolling();gpsInfo("Descubra itinerários ou localize um veículo para começar.");
+  return;
+ }
+ s.poll=true;
+ if(gpsTimer!==null){clearTimeout(gpsTimer);gpsTimer=null;}
+ if(!gpsBusy)void refresh();
+}
+async function refresh(once=false){
+ if((!s.poll&&!once)||gpsBusy||s.running||document.hidden)return;
+ gpsBusy=true;
+ el("gpsNow").disabled=true;
+ const started=Date.now();
+ let ok=0,failures=0,queries=0;
  try{
-  for(const id of s.routes){if(!s.poll)break;await getVehicles(id);}
-  say("Atualização de itinerários concluída. Carros vistos: "+s.buses.size);
- }catch(e){say("Atualização parcial: "+e.message,true);}
- if(s.poll)setTimeout(refresh,90000);
+  const cfg=GPS.getConfig(el("gpsInterval").value);
+  const target=selectedVehicleId&&s.buses.get(String(selectedVehicleId));
+  // Prioritize one explicitly tracked bus, then a small fair batch of routes.
+  if(target&&/^[A-Za-z0-9_-]{1,32}$/.test(String(target.id))){
+   try{
+    const response=await api("/api/vehicle?number="+encodeURIComponent(target.id));
+    for(const vehicle of response.veiculos||[])uniqueVehicle(vehicle);
+    ok++;queries++;
+   }catch(e){failures++;queries++;eventLog("Consulta do carro "+target.id+" indisponível: "+e.message,"warn");}
+  }
+  const batch=GPS.chooseRoutes(s.routes.values(),s.buses.values(),selectedVehicleId,
+    gpsCursor,cfg.routeBatch);
+  gpsCursor=batch.cursor;
+  for(const id of batch.ids){
+   if((!s.poll&&!once)||s.running||document.hidden)break;
+   try{await getVehicles(id,false);ok++;}
+   catch(e){failures++;eventLog("Falha de GPS no itinerário "+id+": "+e.message,"warn");}
+   queries++;
+  }
+  if(ok){s.mode="live";tag("GPS · ÚLTIMAS CONSULTAS AO SIU");}
+  paint();
+  if(queries){
+   const elapsed=((Date.now()-started)/1000).toFixed(1);
+   gpsInfo("Última rodada: "+ok+"/"+queries+" consultas concluídas em "+elapsed+
+     " s · "+new Date().toLocaleTimeString("pt-BR")+". A posição GPS pode ser anterior à consulta.");
+  }else gpsInfo("Sem itinerários ou veículo selecionado para consultar.");
+  if(!ok&&queries)gpsFailCycles=Math.min(8,gpsFailCycles+1);
+  else gpsFailCycles=0;
+ }catch(e){
+  gpsFailCycles=Math.min(8,gpsFailCycles+1);
+  gpsInfo("Erro nesta rodada de GPS: "+e.message+". Próxima tentativa com intervalo adaptativo.");
+  eventLog("Falha na atualização GPS: "+e.message,"warn");
+ }finally{
+  gpsBusy=false;el("gpsNow").disabled=false;
+  if(s.poll&&!s.running)scheduleGpsNext();
+ }
 }
 async function direct(){
  const n=el("directNumber").value.trim();
@@ -484,7 +556,8 @@ async function clearMemory(){
   if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}
   if(memoryAvailable)await memory.clear();
   clearDetail();s.mode="demo";s.phase="new";s.lines=[];s.buses.clear();s.routes.clear();s.scanned.clear();
-  s.geometry.clear();s.secondary=[];s.nextLineIndex=0;s.secondaryIndex=0;s.done=0;s.errors=0;s.poll=false;
+  pauseGpsPolling();el("poll").checked=false;
+  s.geometry.clear();s.secondary=[];s.nextLineIndex=0;s.secondaryIndex=0;s.done=0;s.errors=0;
   checkedThisVisit.clear();memoryLabel(memoryAvailable?"Memória limpa":"Indisponível");
   tag("MODO DEMONSTRAÇÃO");say("Memória deste navegador apagada. O histórico compartilhado na D1 permanece disponível; use Sincronizar histórico para restaurá-lo.");
   buttonState();paint();
@@ -519,6 +592,21 @@ el("copyCoords").addEventListener("click",async()=>{
  catch{eventLog("Não foi possível copiar coordenadas neste navegador.","warn");}
 });
 el("clearMemory").addEventListener("click",clearMemory);
+el("poll").addEventListener("change",()=>{
+ if(el("poll").checked)startGpsPolling();
+ else{pauseGpsPolling();gpsInfo("GPS automático desligado.");}
+ scheduleSave();
+});
+el("gpsInterval").addEventListener("change",()=>{
+ el("gpsInterval").value=String(GPS.getConfig(el("gpsInterval").value).seconds);
+ if(s.poll)startGpsPolling();
+ scheduleSave();
+});
+el("gpsNow").addEventListener("click",()=>void refresh(true));
+document.addEventListener("visibilitychange",()=>{
+ if(document.hidden){pauseGpsPolling();gpsInfo("GPS pausado: página em segundo plano.");}
+ else if(el("poll").checked)startGpsPolling();
+});
 el("sharedRefresh").addEventListener("click",hydrateSharedMemory);
 el("busSearch").addEventListener("input",paint);
 el("direct").addEventListener("click",direct);

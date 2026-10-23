@@ -53,6 +53,15 @@ assert.equal(d1conf.d1_databases[0].database_id,"fef5837c-0c0f-4c63-b625-55c8530
 assert.equal(d1conf.d1_databases[0].binding,"FEIRABUS_DB");
 assert.equal(d1conf.d1_databases[0].database_name,"db_app","Nome real da D1 não pode voltar ao valor provisório");
 assert.ok(html.includes('id="d1State"')&&html.includes('id="sharedRefresh"'),"CCO sem indicadores D1");
+const gpsSource=fs.readFileSync("public/assets/gps-polling.js","utf8");
+assert.ok(html.includes('id="gpsInterval"')&&html.includes('id="gpsNow"')&&html.includes('id="gpsState"'),"GPS controls missing");
+assert.ok(html.includes('/assets/gps-polling.js'),"GPS scheduler not loaded before app.js");
+assert.ok(app.includes("GPS.chooseRoutes(")&&app.includes("function startGpsPolling()"),"Bounded GPS refresh missing");
+assert.ok(app.includes("Date.parse(String(v.consultadoEm"),"GPS must distinguish SIU query age from rendering time");
+assert.ok(!app.includes("for(const id of s.routes){if(!s.poll)break;"),"Regression: unlimited full fleet refresh");
+assert.ok(gpsSource.includes("routeBatch:2")&&gpsSource.includes("routeBatch:4"),"Expected per-cycle query limits missing");
+assert.ok(workerSource.includes('"retornoJSONVeiculos",12,ctx')&&workerSource.includes('"retornoJSONVeiculos",20,ctx'),"Cache TTLs too slow for focus poll");
+
 assert.ok(app.includes('function hydrateSharedMemory()')&&app.includes('/api/memory/snapshot'),"CCO sem importação da memória D1");
 assert.ok(d1source.includes("ON CONFLICT(id)")&&d1source.includes("saveVehicles"),"D1 não registra últimas posições");
 assert.ok(fs.existsSync("migrations/0001_feirabus_memory.sql"),"Arquivo de migração D1 ausente");
