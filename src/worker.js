@@ -12,23 +12,39 @@ function ident(v) {
   if(!/^[A-Za-z0-9_-]{1,32}$/.test(v)) throw bad("Identificador invalido");
   return v;
 }
-function array(v) {
-  // O APK usa eval("[" + data.linhas + "]"): o SIU também envia objetos
-  // separados por vírgulas sem os colchetes de um array JSON.
-  if(Array.isArray(v)) return v;
+function array(v,depth=0) {
+  // No SIU, o campo "linhas" pode vir como string, array de strings,
+  // objeto ou uma mistura. O app usa coerção para string + eval(...).
+  // Interpretamos apenas JSON, sem executar código vindo do servidor.
+  if(depth>5) return [];
+  if(Array.isArray(v)) return v.flatMap(item=>array(item,depth+1));
   if(v && typeof v==="object") return [v];
   if(typeof v!=="string") return [];
   const raw=v.trim();
-  if(!raw) return [];
+  if(!raw || raw==="null" || raw==="undefined")return [];
   for(const sample of [raw,"["+raw+"]"]){
     try {
-      let parsed=JSON.parse(sample);
-      if(typeof parsed==="string")parsed=JSON.parse(parsed);
-      if(Array.isArray(parsed))return parsed;
-      if(parsed && typeof parsed==="object")return [parsed];
+      const parsed=JSON.parse(sample);
+      if(parsed===v) continue;
+      return array(parsed,depth+1);
     }catch{}
   }
   return [];
+}
+function shape(d,rows){
+  const raw=d?.linhas;
+  const keys=d && typeof d==="object" ? Object.keys(d).slice(0,12):[];
+  return {
+    respostaSucesso:success(d),
+    campoLinhasPresente:d!=null && Object.prototype.hasOwnProperty.call(d,"linhas"),
+    tipoLinhas:Array.isArray(raw)?"array":raw===null?"null":typeof raw,
+    elementosBrutos:Array.isArray(raw)?raw.length:null,
+    tipoPrimeiroElemento:Array.isArray(raw)&&raw.length?(Array.isArray(raw[0])?"array":typeof raw[0]):null,
+    caracteresTexto:typeof raw==="string"?raw.length:null,
+    itensInterpretados:rows.length,
+    primeirosCampos:rows[0] && typeof rows[0]==="object"?Object.keys(rows[0]).slice(0,12):[],
+    camposResposta:keys
+  };
 }
 function value(v){return Number(String(v??"").replace(",","."));}
 function local(lat,lon){return Number.isFinite(lat)&&Number.isFinite(lon)&&lat>=BOUNDS.minLat&&lat<=BOUNDS.maxLat&&lon>=BOUNDS.minLon&&lon<=BOUNDS.maxLon;}
@@ -44,7 +60,7 @@ function decode(s,expectedCallback,pathCallback){
   return JSON.parse(m[2]);
 }
 async function upstream(route,callback,ttl,ctx){
-  const key="https://cache.feirabus.invalid/"+encodeURIComponent(route);
+  const key="https://cache.feirabus.invalid/v4/"+encodeURIComponent(route);
   const req=new Request(key), cached=await caches.default.match(req);
   if(cached)return cached.json();
   if(inflight.has(route))return inflight.get(route);
@@ -72,7 +88,9 @@ async function upstream(route,callback,ttl,ctx){
     const raw=await response.text();
     if(raw.length>2000000)throw bad("Resposta muito grande",502);
     const result=decode(raw,callbackName,callback);
-    ctx.waitUntil(caches.default.put(req,new Response(JSON.stringify(result),{headers:{"Cache-Control":"public, max-age="+ttl,"Content-Type":"application/json"}})));
+    // Não guardar por uma hora uma lista de linhas vazia ou indecifrável.
+    if(!route.startsWith("buscarLinhas/") || array(result?.linhas).some(x=>x?.cod!=null))
+      ctx.waitUntil(caches.default.put(req,new Response(JSON.stringify(result),{headers:{"Cache-Control":"public, max-age="+ttl,"Content-Type":"application/json"}})));
     return result;
   })();
   inflight.set(route,promise);
@@ -86,17 +104,23 @@ function vehicle(x,route,idOverride){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-line-parser-v2",worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/initialize"){
     // O app FSA chama este endpoint ao abrir pela primeira vez. Retornamos
     // apenas o diagnóstico: parâmetros internos do operador não são publicados.
     const d=await upstream("buscarParametrosIniciais/retornoJSONParametrosIniciais","retornoJSONParametrosIniciais",1800,ctx);
     return {inicializacao:success(d)?"confirmada":"nao-confirmada",sucesso:success(d)};
   }
-  if(p==="/api/lines"){
+  if(p==="/api/lines" || p==="/api/diagnostics/lines"){
     const d=await upstream("buscarLinhas/retornoJSONListaLinhas","retornoJSONListaLinhas",3600,ctx);
-    if(!success(d))throw bad("SIU nao confirmou lista de linhas",502);
-    return {linhas:array(d.linhas).filter(x=>x?.cod!=null).slice(0,600).map(x=>({id:String(x.cod),numero:String(x.sgl??""),nome:String(x.nom??"")}))};
+    const parsed=array(d?.linhas);
+    const meta=shape(d,parsed);
+    if(!success(d))throw bad("SIU respondeu sem sucesso (campos: "+meta.camposResposta.join(", ")+")",502);
+    const linhas=parsed.filter(x=>x && typeof x==="object" && x.cod!=null && x.cod!=="Sem Dados").slice(0,600)
+      .map(x=>({id:String(x.cod),numero:String(x.sgl??""),nome:String(x.nom??"")}));
+    meta.linhasValidas=linhas.length;
+    if(p==="/api/diagnostics/lines")return {diagnostico:meta,linhasExemplo:linhas.slice(0,3)};
+    return {linhas,diagnostico:linhas.length?undefined:meta};
   }
   if(p==="/api/sublines"){
     const n=ident(q.get("line")),d=await upstream("V3/retornaSublinhasDaLinha/"+n+"/0/"+city+"/retornoSublinhasJSON","retornoSublinhasJSON",21600,ctx);

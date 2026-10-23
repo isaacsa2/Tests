@@ -1,5 +1,5 @@
 {
-  "name": "feiradesantana",
+  "name": "tests",
   "main": "src/worker.js",
   "compatibility_date": "2026-10-23",
   "compatibility_flags": [

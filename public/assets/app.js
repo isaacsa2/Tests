@@ -91,7 +91,14 @@ async function run(){
   if(s.stop)return;
   say("Consultando catálogo de linhas do SIU...");
   const d=await api("/api/lines",true);s.lines=d.linhas||[];paint();
-  if(!s.lines.length){say("O SIU respondeu sem linhas. Não há veículos para descobrir.",true);return;}
+  if(!s.lines.length){
+    const x=d.diagnostico||{};
+    say("Nenhuma linha interpretável recebida. Tipo: "+(x.tipoLinhas??"desconhecido")+
+      "; itens decodificados: "+(x.itensInterpretados??0)+
+      "; campos: "+(x.camposResposta||[]).join(", ")+
+      ". Verifique /api/diagnostics/lines e confirme se o SIU está entregando linhas.",true);
+    return;
+  }
   for(const line of s.lines){
    if(s.stop)break;
    let variants=[line];
