@@ -142,3 +142,13 @@ footer{padding:20px 4px;font-size:11px;color:var(--dim);line-height:1.8}
 /* Texto sobre blocos coloridos fica claro em qualquer tema (o amarelo usa tinta escura). */
 .tile-blue,.tile-green,.tile-red,.section-num,.badge-access{color:#f5f2ea}
 .accent-yellow .section-num,.tile-yellow{color:var(--ink)}
+
+/* Avisos oficiais e paradas próximas */
+.notice-list{display:grid;gap:10px}
+.notice-item{border:1px solid var(--line);border-left:4px solid var(--yellow);border-radius:10px;background:var(--field);padding:11px 13px}
+.notice-item strong{display:block;font-size:15px}.notice-item .badge{margin-left:8px}
+.notice-item p{margin:6px 0 0;font-size:13px;line-height:1.55;color:var(--muted);white-space:pre-line;overflow-wrap:anywhere}
+.notice-box{display:grid;gap:8px;margin:0 0 10px;padding:10px;border-radius:10px;background:var(--panel2);border:1px solid var(--line2)}
+.notice-kicker{font-size:10px;font-weight:800;letter-spacing:1.4px;color:var(--yellow-text)}
+.nearby{margin-top:16px;border-top:1px solid var(--line);padding-top:14px;display:grid;gap:10px}
+.nearby-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.nearby-head small{flex:1;min-width:180px}

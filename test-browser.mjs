@@ -17,12 +17,20 @@ const lines=fixture("lines.json"),stops=fixture("stops-10.json"),schedule=fixtur
 const mid=geometry.geometry.coordinates[Math.floor(geometry.geometry.coordinates.length/2)];
 const iso=ago=>new Date(Date.now()-ago).toISOString();
 const MIN=60000;
+const nearbyRequests=[];
 
 function api(u){
  const q=u.searchParams,p=u.pathname;
  if(p==="/api/lines")return lines;
  if(p==="/api/sublines")return {sublinhas:[]};
- if(p==="/api/stops")return q.get("line")==="10"?stops:{paradas:[]};
+ if(p==="/api/stops")return q.get("line")==="10"?{paradas:stops.paradas.map((x,i)=>i<3?{...x,lat:-12.27+i*.001,lon:-38.97}:x)}:{paradas:[]};
+ if(p==="/api/stops/nearby"){
+  nearbyRequests.push(u.search);
+  return {paradas:[{id:"5590",nome:"Av. Jardim Brasil (SAIDA)",codigoSIU:"",sentido:"",lat:-12.2702,lon:-38.9701,distancia:40},{id:"341",nome:"Estr. Velha de Jaiba",codigoSIU:"",sentido:"",lat:-12.272,lon:-38.97,distancia:230}]};
+ }
+ if(p==="/api/route-stops")return {itinerario:q.get("itinerary"),paradas:[{id:"5590",nome:"Av. Jardim Brasil (SAIDA)",lat:mid[1],lon:mid[0]}]};
+ if(p==="/api/notices")return {avisos:[{id:"9",assunto:"Obra na Av. Getúlio Vargas",texto:"Linha 007 desviada.\n<img src=x onerror=\"window.__xss=1\">"}]};
+ if(p==="/api/notices/stop")return {avisos:q.get("stop")==="5590"?[{id:"10",assunto:"Ponto com obra",texto:"Embarque 20 m adiante."}]:[]};
  if(p==="/api/schedule")return q.get("line")==="10"?schedule:{linha:q.get("line"),horarios:[]};
  if(p==="/api/predictions")return {previsoes:[
   {itinerario:"732",linha:"007",carro:"33011",previsao:"5 min",destino:"JARDIM BRASIL",acessibilidade:"1"},
@@ -72,9 +80,24 @@ const step=name=>console.log("  · "+name);
 try{
  console.log("Passageiro (celular)");
  const phone={width:390,height:844};
- const ctx=await browser.newContext({viewport:phone,colorScheme:"dark",serviceWorkers:"block"});
+ const ctx=await browser.newContext({viewport:phone,colorScheme:"dark",serviceWorkers:"block",
+  permissions:["geolocation"],geolocation:{latitude:-12.27012345,longitude:-38.97009876}});
  let p=await page(null,null,ctx);
  await p.goto(base+"/passageiro.html");
+ await p.waitForSelector("#avisos:not([hidden]) .notice-item");
+ const notice=await p.locator("#noticeList .notice-item").first().innerText();
+ assert.match(notice,/Obra na Av\. Getúlio Vargas[\s\S]*Novo[\s\S]*<img src=x/,"aviso oficial visível, marcado como novo e como texto");
+ assert.equal(await p.locator("#noticeList img").count(),0,"aviso do SIU nunca vira HTML");
+ assert.equal(await p.evaluate(()=>window.__xss),undefined);
+ step("avisos oficiais como texto puro");
+ await p.click("#nearbyStops");
+ await p.waitForSelector("#nearbyList .fav");
+ assert.equal(nearbyRequests.at(-1),"?lat=-12.27&lon=-38.97","posição sai do aparelho arredondada");
+ assert.match(await p.locator("#nearbyList .fav").first().innerText(),/Av\. Jardim Brasil[\s\S]*cerca de 40 m/);
+ await p.click("#nearbyList .fav button:has-text('Previsão')");
+ await p.waitForSelector("#nearbyList .notice-box");
+ assert.match(await p.locator("#nearbyList .notice-box").innerText(),/AVISO DA OPERADORA[\s\S]*Ponto com obra/);
+ step("paradas perto de mim com aviso do ponto");
  await p.waitForFunction(()=>document.querySelectorAll("#lineSelect option").length>2);
  await p.selectOption("#lineSelect","10");
  await p.waitForSelector(".origin-tab");
@@ -85,6 +108,8 @@ try{
  await p.waitForSelector(".stop-panel .stop-tools");
  const first=p.locator(".stop-panel .result").first();
  assert.match(await first.innerText(),/Esta linha/);
+ await p.waitForSelector(".stop-panel .notice-box");
+ assert.ok(await p.isVisible("#nearestStop"),"com coordenadas, 'Mais perto' nesta linha aparece");
  assert.match(await first.innerText(),/♿ Acessível \(SIU\)/,"tpAcess=1 mostra selo");
  assert.doesNotMatch(await p.locator(".stop-panel .result").nth(1).innerText(),/♿/,"tpAcess=0 não afirma nada");
  assert.equal(await p.evaluate(()=>location.hash),"#linha=007&parada=5590");

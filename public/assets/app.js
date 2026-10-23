@@ -733,6 +733,7 @@ async function searchLines(){
 }
 // Trajeto das linhas filtradas (GPS por linha ou seletor de linha), com geometria em cache.
 let drawnRoutesKey="";
+const routeStops=new Map();
 async function drawRouteLines(){
  const chosen=el("fleetLine").value;
  const lines=watch.lines.length?watch.lines:chosen?[GPS.normalizeLine(chosen)]:[];
@@ -754,6 +755,18 @@ async function drawRouteLines(){
   const line=s.routeLines.get(route)||"";
   if(pts.length>1)L.polyline(pts,{color:colors[Math.max(0,lines.indexOf(line))%colors.length],weight:4,opacity:.8})
    .bindTooltip("Linha "+line+" · itinerário "+route).addTo(linesLayer);
+  // Paradas do itinerário com coordenadas (mesma consulta do mapa do APK), em cache por sessão.
+  let stops=routeStops.get(route);
+  if(!stops){
+   try{stops=(await api("/api/route-stops?itinerary="+encodeURIComponent(route))).paradas||[];routeStops.set(route,stops);}
+   catch{stops=[];}
+  }
+  if(drawnRoutesKey!==key)return;
+  for(const st of stops){
+   if(!Number.isFinite(st.lat)||!Number.isFinite(st.lon))continue;
+   L.circleMarker([st.lat,st.lon],{radius:3,color:"#16181f",weight:1,fillColor:"#f5f2ea",fillOpacity:1})
+    .bindTooltip((st.nome||"Ponto "+st.id)+" · linha "+line).addTo(linesLayer);
+  }
  }
  linesLayer.eachLayer(l=>l.bringToBack?.());
 }

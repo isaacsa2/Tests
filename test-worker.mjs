@@ -22,6 +22,12 @@ globalThis.fetch=async function(url){
   {cod:"1",origem:"Terminal Central",tipoDia:"Dia util",horario:"99:99"}
  ];}
  else if(u.includes("/retornaSublinhasDaLinha/")){d.subLinhas=[{cod:"120",sgl:"001A",nom:"Variante"}];}
+ else if(u.includes("/buscarParadasPorLinha/77/")){d.paradas=[{cod:"501",sent:"Bairro",end:"RUA A"},{cod:"502",sent:"Bairro",end:"RUA B"}];}
+ else if(u.includes("/buscarParadasPorLinhaComCoordenadas/77/")){d.paradas=[{cod:"501",y:"-12,2610",x:"-38,9600",azimute:"90"},{cod:"502",y:"-23,5",x:"-46,6"}];}
+ else if(u.includes("/V3/buscarParadasProximas/")){d.paradas=[{cod:"601",desc:"PRACA DA MATRIZ",siu:"P601",y:"-12,2700",x:"-38,9700",azimute:"180"},{cod:"602",desc:"LONGE",y:"-12,2800",x:"-38,9800"},{cod:"Sem Dados"}];}
+ else if(u.includes("/buscarParadasPorItiComCoordenadas/")){d.paradas=[{cod:"701",desc:"INICIO",y:-12.25,x:-38.95},{cod:"702",desc:"FIM",y:-12.26,x:-38.94}];}
+ else if(u.includes("/V3/buscarNotificacao/")){d.notificacao=["{'cod':'9','assunto':'Obra na Av. Getúlio','evento':'Linha 007 desviada.\\nPonto 5590 desativado.'},{'cod':'Sem Dados'}"];}
+ else if(u.includes("/V3/verificaNotificacaoParada/")){d.notificacaoParada=u.includes("/5590/")?[{cod:"9",assunto:"Ponto desativado",evento:"<b>use</b> o ponto 5554"}]:[""];}
  else if(u.includes("/buscarParadasPorLinha/")){d.paradas=[{cod:"315",sent:"Centro",end:"AVENIDA SENHOR DOS PASSOS",siu:"P00315"},{cod:"316",sent:"Centro"},{cod:"318",sent:"Centro",lat:"-12,2601",long:"-38,9655"},{cod:"317",sent:"Bairro",coordY:-23.5,coordX:-46.6}];}
  else if(u.includes("/buscarParadasPorLinhaComCoordenadas/")){d.paradas=[{cod:"315",sent:"Centro",lat:-12.25,long:-38.96}];}
  else if(u.includes("/buscarPrevisoes/")){d.previsoes=[{codItinerario:"90",sgLin:"001",numVeicGestor:"400",prev:"5 min",apelidoLinha:"Terminal Central"}];}
@@ -87,6 +93,26 @@ assert.equal(data.paradas[3].lat,undefined,"Coordenadas fora de Feira de Santana
 assert.equal(data.diagnostico.buscarParadasPorLinha.paradas,4);
 assert.equal(data.diagnostico.buscarParadasPorLinhaComCoordenadas.interpretado.lat,-12.25);
 assert.equal((await get("/api/diagnostics/stops?line=../x"))[0],400);
+[,data]=await get("/api/stops?line=77");
+assert.deepEqual([data.paradas[0].lat,data.paradas[0].lon,data.paradas[0].azimute,data.paradas[0].nome],[-12.261,-38.96,90,"RUA A"],"Coordenada da variante ComCoordenadas junta pelo código");
+assert.equal(data.paradas[1].lat,undefined,"Coordenada fora da região descartada");
+let [nbCode,nb]=await get("/api/stops/nearby?lat=-12.27012345&lon=-38.97009876");
+assert.equal(nbCode,200);
+assert.ok(requests.some(x=>x.includes("V3/buscarParadasProximas/-38.97/-12.27/0/null/retornoJSONH")),"Posição arredondada antes de ir ao SIU");
+assert.deepEqual(nb.paradas.map(x=>[x.id,x.nome,x.codigoSIU]),[["601","PRACA DA MATRIZ","P601"],["602","LONGE",""]]);
+assert.ok(nb.paradas[0].distancia<nb.paradas[1].distancia);
+assert.equal((await get("/api/stops/nearby?lat=-23.5&lon=-46.6"))[0],400,"Fora da região não consulta o SIU");
+assert.equal((await get("/api/stops/nearby?lat=abc&lon=1"))[0],400);
+[,data]=await get("/api/route-stops?itinerary=732");
+assert.deepEqual(data.paradas.map(x=>[x.id,x.lat]),[["701",-12.25],["702",-12.26]]);
+[,data]=await get("/api/notices");
+assert.deepEqual(data.avisos,[{id:"9",assunto:"Obra na Av. Getúlio",texto:"Linha 007 desviada.\nPonto 5590 desativado."}]);
+[,data]=await get("/api/notices/stop?stop=5590");
+assert.equal(data.avisos[0].texto,"<b>use</b> o ponto 5554","Texto bruto: quem exibe é que trata como texto");
+[,data]=await get("/api/notices/stop?stop=1");assert.deepEqual(data.avisos,[]);
+[,data]=await get("/api/diagnostics/siu?kind=nearby&lat=-12.27&lon=-38.97");
+assert.equal(data.itens,3);assert.equal(data.primeiroItem.cod,"601");
+assert.equal((await get("/api/diagnostics/siu?kind=emiteAlarmePanico"))[0],400,"Diagnóstico só aceita consultas de leitura listadas");
 [,data]=await get("/api/stops?line=12");
 assert.ok(requests.some(x=>x.includes("V3/buscarParadasPorLinha/12/0/null/retornoJSON")));
 [,data]=await get("/api/predictions?stop=315");assert.equal(data.previsoes[0].itinerario,"90");assert.equal(data.previsoes[0].previsao,"5 min");
