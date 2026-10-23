@@ -38,7 +38,8 @@ assert.ok(app.includes("FeiraBusFleet?.lookup"),"Ficha não usa referências da 
 for(const path of ["/api/lines","/api/schedule","/api/predictions","/api/vehicle"])assert.ok(passengerJS.includes(path),"Recurso ausente: "+path);
 assert.ok(passenger.includes('rel="manifest"')&&passenger.includes('/assets/passenger.js'),"Página não carregou PWA");
 assert.ok(serviceWorker.includes('url.pathname.startsWith("/api/")')&&serviceWorker.includes("return; // Nunca devolver"),"Service Worker não pode armazenar resposta SIU");
-assert.ok(!fleet.includes("fetch(")&&fleet.includes('"15545"')&&fleet.includes('"32003"'),"Frota deve ser referência estática, não scraping");
+assert.ok(!fleet.includes("fetch(")&&fleet.includes("33001-33011")&&fleet.includes("15540-15586"),
+ "Índices históricos devem permanecer estáticos, sem scraping; ver teste funcional test-fleet.mjs");
 assert.ok(manifest.start_url==="/passageiro.html"&&manifest.icons.some(i=>i.sizes==="192x192")&&manifest.icons.some(i=>i.sizes==="512x512"),"Manifest precisa ícones PNG 192/512");
 for(const icon of manifest.icons.filter(i=>i.type==="image/png"))assert.ok(fs.existsSync("public"+icon.src),"Imagem PWA ausente: "+icon.src);
 
