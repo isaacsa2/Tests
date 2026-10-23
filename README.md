@@ -149,3 +149,24 @@ A página usa bibliotecas de mapa externas e requer conexão para carregar os ma
 - Serviço de página offline só guarda **arquivos estáticos**, nunca respostas `/api/*`. GPS/horários/ETA dependem de internet; não gera histórico operacional fictício.
 - A varredura no CCO reduz o intervalo mínimo entre chamadas sequenciais do navegador de 2500 para 1600 ms. O Worker mantém seu espaçamento best effort de 1300 ms, cache e deduplicação. Isso pode reduzir espera quando a latência da API permitir; não significa ganho percentual garantido nem solicitações paralelas ilimitadas.
 - Antes de rotular atrasos, será necessário relacionar viagem + origem + tipo de dia + identificador do carro + hora real de saída/passagem, validada em campo e em fontes autorizadas. A API atual só oferece a tabela de partidas e previsões por parada.
+
+
+## Cloudflare D1 — Memória compartilhada entre dispositivos
+
+A base informada para o projeto possui UUID `fef5837c-0c0f-4c63-b625-55c85303999b` e o Worker `tests` usa o binding **`FEIRABUS_DB`**. A configuração Wrangler inclui `database_name: "feirabus"` como **nome provisório**: abra Cloudflare > Storage & Databases > D1 > banco com este UUID e, se o nome verdadeiro for diferente, altere somente `database_name` para o nome mostrado. O UUID não muda. Não foi possível consultar a conta Cloudflare a partir desta conversa.
+
+A D1 salva automaticamente, a partir de consultas bem-sucedidas ao SIU:
+- Catálogo de linhas (`fb_lines`); itinerários descobertos (`fb_routes`);
+- **A última posição por veículo**, nunca uma trilha de deslocamento (`fb_vehicles`); o endpoint público só mostra posições consultadas nas últimas 48 horas, marcadas como *históricas* ao carregar;
+- Tabelas de partidas (`fb_schedules`), reutilizadas por até 30 minutos antes de consultar o SIU novamente.
+
+Endpoints: `/api/memory/status` (verifica vínculo/contagens), `/api/memory/snapshot` (dados compartilhados). Somente o Worker insere registros derivados de respostas SIU; **não existe POST público** para alterar a D1. A memória IndexedDB continua ativa para checkpoint local e retomada da varredura. A sincronização central não transfere automaticamente checkpoints privados de um aparelho para outro.
+
+**Migrations:** `migrations/0001_feirabus_memory.sql` contém só `CREATE TABLE IF NOT EXISTS`, sem `DROP` e sem afetar tabelas preexistentes. No deploy, o Worker também inicializa essas tabelas de forma idempotente no primeiro acesso, de modo que a ausência de execução manual de migração não bloqueie a implementação (recomenda-se aplicar a migração formalmente para controle de versões). Com acesso autenticado à conta:
+```sh
+npx wrangler d1 migrations apply FEIRABUS_DB --remote
+npx wrangler deploy
+```
+Em Workers Builds conectado ao GitHub, mantenha `npm test` no build e `npx wrangler deploy` como deploy; a inicialização idempotente permite que o Worker prepare o schema na primeira chamada. Não execute a migração com nome de banco incorreto.
+
+**Nota de segurança:** dados são provenientes do serviço público SIU. Para redistribuição ampla/comercial, alinhe autorização do operador. D1 mantém um registro por prefixo, com data de observação, sem dados pessoais ou histórico de percurso. Se o D1 não estiver configurado/disponível, o gateway SIU continua funcionando.

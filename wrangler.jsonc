@@ -14,5 +14,13 @@
   },
   "vars": {
     "FSA_SIU_CITY": "null"
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "FEIRABUS_DB",
+      "database_name": "feirabus",
+      "database_id": "fef5837c-0c0f-4c63-b625-55c85303999b",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
