@@ -51,6 +51,7 @@ const d1source=fs.readFileSync("src/d1-memory.js","utf8");
 const d1conf=JSON.parse(fs.readFileSync("wrangler.jsonc","utf8"));
 assert.equal(d1conf.d1_databases[0].database_id,"fef5837c-0c0f-4c63-b625-55c85303999b");
 assert.equal(d1conf.d1_databases[0].binding,"FEIRABUS_DB");
+assert.equal(d1conf.d1_databases[0].database_name,"db_app","Nome real da D1 não pode voltar ao valor provisório");
 assert.ok(html.includes('id="d1State"')&&html.includes('id="sharedRefresh"'),"CCO sem indicadores D1");
 assert.ok(app.includes('function hydrateSharedMemory()')&&app.includes('/api/memory/snapshot'),"CCO sem importação da memória D1");
 assert.ok(d1source.includes("ON CONFLICT(id)")&&d1source.includes("saveVehicles"),"D1 não registra últimas posições");
