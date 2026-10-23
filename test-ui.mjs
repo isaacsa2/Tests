@@ -16,3 +16,12 @@ assert.ok(mem.includes("indexedDB")&&mem.includes("saveGeometry"),"Memória não
 assert.ok(css.includes("@media(max-width:740px)")&&css.includes(".map-panel.is-expanded"),"Layout responsivo incompleto");
 assert.ok(html.includes("Não é uma central oficial"),"Aviso de protótipo ausente");
 console.log("OK: CCO estrutural, controles, coleta SIU e memória.");
+
+// Regressões: erro SRI do CSS Leaflet, falta de favicon e basemap que exige API key.
+assert.ok(html.includes('integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="'),"SRI Leaflet CSS precisa coincidir com o arquivo oficial");
+assert.ok(html.includes('integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="'),"SRI Leaflet JS alterado inesperadamente");
+assert.ok(html.includes('href="/favicon.svg"')&&html.includes('href="/favicon.ico"'),"Links de favicon ausentes");
+assert.ok(fs.existsSync("public/favicon.svg")&&fs.existsSync("public/favicon.ico"),"Arquivos de favicon ausentes");
+assert.ok(app.includes('https://tile.openstreetmap.org/{z}/{x}/{y}.png'),"Base de mapa OSM ausente");
+assert.ok(!app.includes("basemaps.cartocdn.com")&&!html.includes("basemaps.cartocdn.com"),"CARTO ainda exige API key");
+assert.ok(app.includes('function applyMapTheme(mode)')&&css.includes('.cco-map-dark .leaflet-tile-pane'),"Alternância de tema escuro local perdida");
