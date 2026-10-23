@@ -226,6 +226,23 @@ A pesquisa no Ônibus Brasil abre páginas de referências e não copia fotograf
 ## Sincronização em lotes de 10 e 15 (outubro de 2026)
 
 - **CCO / GPS:** cada rodada consulta em sequência até **10 itinerários** (15, 30 ou 60 segundos como intervalo configurável **entre rodadas**, após completar a anterior). Continua priorizando o veículo selecionado e itinerários conhecidos. O equipamento do ônibus e o SIU podem atualizar a telemetria mais lentamente; não equivale a posição nova a cada rodada. As gravações na D1 seguem desaceleradas por veículo.
-- **FeiraBus Passageiro:** na aba Paradas, depois de selecionar linha e origem, o botão **Sincronizar 15 pontos** faz até 15 consultas de previsões **sequenciais** por rodada. Exibe progresso/quantidade consultada, pausa ao ocultar a aba e permite retomar pelo botão (próximos 15). Não informa nem estima quantidade de pessoas dentro do ônibus: são 15 **pontos de parada** por lote.
+- **FeiraBus Passageiro:** na aba Paradas, depois de selecionar a linha, o botão **Sincronizar linha toda** consulta as previsões de todos os pontos de todas as origens, em lotes de 15 e **uma consulta por vez**. Exibe progresso, a previsão da linha escolhida e o carro em cada ponto, pausa ao ocultar a aba e o mesmo botão interrompe. Não informa nem estima quantidade de pessoas dentro do ônibus: são **pontos de parada**.
 - **Nomes oficiais das paradas:** a API `/api/stops?line=...` agora devolve `nome` a partir de `dt.end`, `sentido` de `dt.sent` e `codigoSIU` de `dt.siu` (conforme `retornaParadas.html` do APK). O app exibe `nome` e código separadamente. Quando o SIU não fornece nome, aparece `Ponto <código>`, sem inventar endereço.
 - Nenhum endpoint retorna total de passageiros embarcados: esse dado não está confirmado na API SIU examinada. As consultas são limitadas e não realizadas em segundo plano com a página fechada.
+
+## Passageiro e CCO: favoritos, mapa, tema e histórico (outubro de 2026)
+
+- **Meus pontos:** salve ponto + linha com apelido (até 12, só no aparelho) e consulte a previsão em um toque.
+- **Link compartilhável:** `passageiro.html#linha=007&parada=5590` abre a linha e a previsão do ponto. O endereço é atualizado ao abrir um ponto.
+- **Sem internet:** catálogo de linhas e os 6 últimos quadros de horários ficam salvos com o aviso “Salvo em …”. Previsões e GPS nunca vêm desse cache.
+- **Mapa da linha (04 / MAPA):** Leaflet é baixado só quando pedido; desenha o trajeto (`/api/geometry`) e os ônibus dos itinerários da linha, atualizando a cada 30 s com a página visível.
+- **Ônibus antigos:** no app, carros sem consulta nova há mais de **30 min** não aparecem (mapa e busca por prefixo). O CCO continua mostrando todos.
+- **Acessibilidade:** o selo ♿ aparece só quando o SIU envia `tpAcess = "1"`; `"0"` ou vazio não afirma nada.
+- **Tema claro:** segue o sistema até a escolha no botão ☀/☾, compartilhado entre app e CCO. O CCO usa a mesma identidade visual do app.
+- **Ponto mais perto:** usa o GPS do celular, mas só aparece quando `/api/stops` traz coordenadas. Confira com `/api/diagnostics/stops?line=10`, que mostra os campos crus das duas variantes de paradas do SIU.
+- **CCO, trajetos:** com “GPS por linha” ou o seletor de linha, o mapa desenha a geometria dos itinerários filtrados.
+- **CCO, Histórico:** aba com as linhas em que cada carro apareceu nos últimos 7 dias (`/api/memory/vehicle-lines`). A tabela `fb_vehicle_lines` guarda só carro, linha e horários (sem coordenadas), grava na troca de linha ou a cada 30 min e apaga registros com mais de 7 dias. O Worker cria a tabela sozinho; a migração manual é `migrations/0002_vehicle_lines.sql`.
+
+### Teste de navegador
+
+`npm run test:browser` abre o passageiro e o CCO no Chromium (celular e PC) com a API simulada a partir de respostas reais em `tests/fixtures`. Cobre favoritos, sincronização da linha toda, mapa, ônibus antigos, link compartilhado, modo sem internet, tema, histórico e a regressão do mapa que abria no zoom mundial após o teclado do celular. No GitHub Actions roda no job `browser`; localmente precisa do pacote `playwright` 1.56.1 e do Chromium.

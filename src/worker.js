@@ -1,4 +1,4 @@
-import {HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus,lookupVehicle,listSearchRoutes} from "./d1-memory.js";
+import {HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,readVehicleLines,dbStatus,lookupVehicle,listSearchRoutes} from "./d1-memory.js";
 // FeiraBus: gateway fixo do SIU. Respostas do servidor real ainda precisam ser validadas.
 const BASE = "http://fsa.siumobile.com.br:6060/siumobile-ws-v01/rest/ws/";
 const BOUNDS = {minLat:-13.2,maxLat:-11.7,minLon:-39.8,maxLon:-38.3};
@@ -147,6 +147,21 @@ async function upstream(route,callback,ttl,ctx){
   inflight.set(route,promise);
   try{return await promise;}finally{inflight.delete(route);}
 }
+// Parada: o APK usa dt.end como título e dt.sent como origem; coordenadas só
+// quando o SIU as envia e estão dentro da região.
+function stop(x){
+  const out={
+    id:String(x.cod).slice(0,40),
+    sentido:String(x.sent??x.sentido??"").trim().slice(0,120),
+    nome:String(x.end??x.desc??"").trim().slice(0,180),
+    codigoSIU:String(x.siu??"").trim().slice(0,40)
+  };
+  for(const [la,lo] of [[x.lat,x.long??x.lon??x.lng],[x.coordY,x.coordX],[x.latitude,x.longitude]]){
+    const lat=value(la),lon=value(lo);
+    if(la!=null&&lo!=null&&local(lat,lon)){out.lat=lat;out.lon=lon;break;}
+  }
+  return out;
+}
 function vehicle(x,route,idOverride,fetchedAt){
   const lat=value(x?.lat),lon=value(x?.long??x?.lon);
   if(!local(lat,lon))return null;
@@ -191,13 +206,20 @@ async function cachedSharedRead(key,seconds,loader,ctx){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-gps10-stops15-names-v8",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-favorites-map-history-v9",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
     try{
       return {...await cachedSharedRead("status",D1_STATUS_CACHE_SECONDS,()=>dbStatus(env.FEIRABUS_DB),ctx),
         cacheMaxAgeSeconds:D1_STATUS_CACHE_SECONDS};
     }catch(e){throw bad("D1 indisponivel: "+String(e?.message??e).slice(0,130),503);}
+  }
+  if(p==="/api/memory/vehicle-lines"){
+    if(!HAS_DB(env))throw bad("D1 nao configurada; confira wrangler.jsonc e o deploy",503);
+    try{
+      return {...await cachedSharedRead("vehicle-lines",D1_CACHE_SECONDS,()=>readVehicleLines(env.FEIRABUS_DB),ctx),
+        cacheMaxAgeSeconds:D1_CACHE_SECONDS};
+    }catch(e){throw bad("Historico de linhas indisponivel: "+String(e?.message??e).slice(0,130),503);}
   }
   if(p==="/api/memory/snapshot"){
     if(!HAS_DB(env))throw bad("D1 nao configurada; confira wrangler.jsonc e o deploy",503);
@@ -261,13 +283,24 @@ async function action(url,env,ctx){
       d=await upstream("V3/buscarParadasPorLinhaComCoordenadas/"+n+"/0/"+city+"/retornoJSONH","retornoJSONH",21600,ctx);
     return {paradas:success(d)?array(d.paradas)
       .filter(x=>x?.cod!=null&&x.cod!=="Sem Dados")
-      .slice(0,2500).map(x=>({
-        id:String(x.cod).slice(0,40),
-        sentido:String(x.sent??x.sentido??"").trim().slice(0,120),
-        // O APK usa dt.end como o título do ponto e dt.sent como origem.
-        nome:String(x.end??x.desc??"").trim().slice(0,180),
-        codigoSIU:String(x.siu??"").trim().slice(0,40)
-      })):[]};
+      .slice(0,2500).map(stop):[]};
+  }
+  if(p==="/api/diagnostics/stops"){
+    // Mostra apenas o formato dos campos devolvidos pelo SIU, para confirmar
+    // quais trazem nome e coordenadas antes de depender deles na interface.
+    const n=ident(q.get("line")),out={};
+    for(const [name,route,cb] of [
+      ["buscarParadasPorLinha","V3/buscarParadasPorLinha/"+n+"/0/"+city+"/retornoJSON","retornoJSON"],
+      ["buscarParadasPorLinhaComCoordenadas","V3/buscarParadasPorLinhaComCoordenadas/"+n+"/0/"+city+"/retornoJSONH","retornoJSONH"]]){
+      try{
+        const d=await upstream(route,cb,21600,ctx),rows=array(d?.paradas);
+        const first=rows[0]&&typeof rows[0]==="object"?rows[0]:{};
+        out[name]={sucesso:success(d),paradas:rows.length,
+          campos:Object.fromEntries(Object.entries(first).slice(0,20).map(([k,v])=>[k.slice(0,40),typeof v==="string"?v.slice(0,60):v==null||typeof v==="number"||typeof v==="boolean"?v:typeof v])),
+          interpretado:rows[0]?stop(rows[0]):null};
+      }catch(e){out[name]={erro:String(e?.message??e).slice(0,120)};}
+    }
+    return {linha:n,diagnostico:out};
   }
   if(p==="/api/predictions"){
     const n=ident(q.get("stop")),d=await upstream("V3/buscarPrevisoes/"+n+"/false/0/"+city+"/retornoJSON","retornoJSON",180,ctx);

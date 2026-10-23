@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#080f1d">
+<meta name="theme-color" content="#12151c">
+<meta name="color-scheme" content="dark light">
 <meta name="description" content="FeiraBus CCO: monitoramento independente das linhas, itinerários e posições disponibilizadas pelo SIU de Feira de Santana.">
 <title>FeiraBus CCO | Centro de Controle Operacional</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
 <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="16x16">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script>try{const t=localStorage.getItem("feirabus-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch{}</script>
 <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
@@ -20,6 +22,7 @@
  <div class="topbar-center"><span class="location-marker" aria-hidden="true">◆</span><span>FEIRA DE SANTANA <small>BA • BRASIL</small></span></div>
  <div class="topbar-right">
   <div class="system-status" id="stateTag"><span class="status-dot"></span>MODO DEMONSTRAÇÃO</div>
+  <button id="themeToggle" class="theme-toggle" type="button" aria-label="Alternar tema claro/escuro">☀</button>
   <div class="clock-box"><strong id="clockNow">--:--:--</strong><small id="clockDate">--/--/----</small></div>
  </div>
 </header>
@@ -29,6 +32,7 @@
   <a class="rail-link active" href="#overview" data-view="geral" aria-label="Visão geral"><span aria-hidden="true">▦</span><small>GERAL</small></a>
   <a class="rail-link" href="#mapa" data-view="mapa" aria-label="Mapa de operações"><span aria-hidden="true">◎</span><small>MAPA</small></a>
   <a class="rail-link" href="#frota" data-view="frota" aria-label="Frota monitorada"><span aria-hidden="true">▤</span><small>FROTA</small></a>
+  <a class="rail-link" href="#historico" data-view="historico" aria-label="Linhas recentes de cada carro"><span aria-hidden="true">⇆</span><small>HISTÓRICO</small></a>
   <a class="rail-link" href="#eventos" data-view="eventos" aria-label="Eventos de monitoramento"><span aria-hidden="true">≡</span><small>EVENTOS</small></a>
   <a class="rail-link" href="#config" data-view="ajustes" aria-label="Configurações de varredura"><span aria-hidden="true">⚙</span><small>AJUSTES</small></a>
   <div class="rail-bottom">FSA<br>BA</div>
@@ -64,6 +68,13 @@
      </div>
      <div class="map-wrap"><div id="map"></div><div class="map-corner">FSA / CENTRAL DE OPERAÇÕES <span>●</span> <span id="mapMode">SIMULAÇÃO</span></div></div>
      <div class="map-bottom"><div class="legend-group"><span><i class="dot recent"></i> Consultado há até 5 min</span><span><i class="dot old"></i> Histórico / desatualizado</span><span><i class="dot demo"></i> Demonstração</span></div><span class="map-note">Horário de consulta ≠ horário da medição GPS</span></div>
+    </section>
+    <section class="panel history-panel" id="historico" data-mview="historico" aria-label="Linhas recentes de cada carro">
+     <div class="panel-heading"><div><div class="panel-eyebrow">MEMÓRIA COMPARTILHADA · D1</div><h2>Linhas recentes de cada carro</h2></div><span class="panel-tag">ÚLTIMOS 7 DIAS</span></div>
+     <div class="history-tools"><label class="sr-only" for="historySearch">Filtrar histórico</label><div class="search-wrap"><span aria-hidden="true">⌕</span><input id="historySearch" type="search" placeholder="Carro ou linha (ex.: 25009, 007)" autocomplete="off"></div><button id="historyRefresh" type="button" class="btn btn-ghost">↻ Atualizar</button></div>
+     <p id="historyState" class="hint history-state" role="status" aria-live="polite">Carregando histórico…</p>
+     <div id="historyList" class="history-list"></div>
+     <p class="hint history-note">Linhas em que cada carro apareceu nas consultas ao SIU. Não é escala oficial nem registro completo; carros sem posição recente continuam aqui e somem só do app do passageiro.</p>
     </section>
     <section class="panel activity-panel" id="eventos" data-mview="eventos">
      <div class="panel-heading"><div><div class="panel-eyebrow">MONITORAMENTO DA SESSÃO</div><h2>Eventos e diagnóstico</h2></div><span class="panel-tag">NÃO SÃO OCORRÊNCIAS DE TRÂNSITO</span></div>
