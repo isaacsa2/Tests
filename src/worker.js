@@ -109,7 +109,7 @@ function decode(s,expectedCallback,pathCallback){
   return JSON.parse(m[2]);
 }
 async function upstream(route,callback,ttl,ctx){
-  const key="https://cache.feirabus.invalid/v5/"+encodeURIComponent(route);
+  const key="https://cache.feirabus.invalid/v6/"+encodeURIComponent(route);
   const req=new Request(key), cached=await caches.default.match(req);
   if(cached)return cached.json();
   if(inflight.has(route))return inflight.get(route);
@@ -137,6 +137,8 @@ async function upstream(route,callback,ttl,ctx){
     const raw=await response.text();
     if(raw.length>2000000)throw bad("Resposta muito grande",502);
     const result=decode(raw,callbackName,callback);
+    // Timestamp of the upstream HTTP fetch, preserved in cache to avoid implying cached GPS is new.
+    if(result && typeof result==="object")result._siuFetchedAt=new Date().toISOString();
     // Não guardar por uma hora uma lista de linhas vazia ou indecifrável.
     if(!route.startsWith("buscarLinhas/") || array(result?.linhas).some(x=>x?.cod!=null))
       ctx.waitUntil(caches.default.put(req,new Response(JSON.stringify(result),{headers:{"Cache-Control":"public, max-age="+ttl,"Content-Type":"application/json"}})));
@@ -145,11 +147,11 @@ async function upstream(route,callback,ttl,ctx){
   inflight.set(route,promise);
   try{return await promise;}finally{inflight.delete(route);}
 }
-function vehicle(x,route,idOverride){
+function vehicle(x,route,idOverride,fetchedAt){
   const lat=value(x?.lat),lon=value(x?.long??x?.lon);
   if(!local(lat,lon))return null;
   const dir=value(x?.direcao);
-  return {id:String(x?.numVeicGestor??idOverride??"").slice(0,35),linha:String(x?.descricao??x?.sgLin??"").slice(0,70),lat,lon,rumo:Number.isFinite(dir)?dir:null,itinerario:route??null,consultadoEm:new Date().toISOString()};
+  return {id:String(x?.numVeicGestor??idOverride??"").slice(0,35),linha:String(x?.descricao??x?.sgLin??"").slice(0,70),lat,lon,rumo:Number.isFinite(dir)?dir:null,itinerario:route??null,consultadoEm:fetchedAt??new Date().toISOString()};
 }
 // Edge cache: shared historical memory has no need for per-user D1 reads.
 const D1_CACHE_SECONDS=120;
@@ -189,7 +191,7 @@ async function cachedSharedRead(key,seconds,loader,ctx){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-d1-quota-guard-v6",d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-adaptive-gps-poll-v7",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
     try{
@@ -273,16 +275,16 @@ async function action(url,env,ctx){
     return {previsoes};
   }
   if(p==="/api/vehicles"){
-    const n=ident(q.get("itinerary")),d=await upstream("V3/retornaVeiculosMapa/"+n+"/0/"+city+"/retornoJSONVeiculos","retornoJSONVeiculos",45,ctx);
-    const veiculos=success(d)?array(d.veiculos).map(x=>vehicle(x,n)).filter(x=>x?.id):[];
+    const n=ident(q.get("itinerary")),d=await upstream("V3/retornaVeiculosMapa/"+n+"/0/"+city+"/retornoJSONVeiculos","retornoJSONVeiculos",20,ctx);
+    const veiculos=success(d)?array(d.veiculos).map(x=>vehicle(x,n,null,d._siuFetchedAt)).filter(x=>x?.id):[];
     if(success(d))remember(env,ctx,db=>saveVehicles(db,veiculos,n));
     return {veiculos,itinerario:n};
   }
   if(p==="/api/vehicle"){
-    const n=ident(q.get("number")),d=await upstream("retornaVeiculoEmbarcado/"+n+"/retornoJSONVeiculos","retornoJSONVeiculos",60,ctx);
+    const n=ident(q.get("number")),d=await upstream("retornaVeiculoEmbarcado/"+n+"/retornoJSONVeiculos","retornoJSONVeiculos",12,ctx);
     const raw=array(d.veiculos);
     if(!raw.length&&d.veiculo&&typeof d.veiculo==="object")raw.push(d.veiculo);
-    const veiculos=success(d)?raw.map(x=>vehicle(x,null,n)).filter(x=>x?.id===n):[];
+    const veiculos=success(d)?raw.map(x=>vehicle(x,null,n,d._siuFetchedAt)).filter(x=>x?.id===n):[];
     if(veiculos.length)remember(env,ctx,db=>saveVehicles(db,veiculos));
     return {veiculos,numeroConsultado:n};
   }

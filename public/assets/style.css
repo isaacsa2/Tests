@@ -25,3 +25,11 @@
 .cco-map-dark .leaflet-tile-pane{filter:grayscale(.75) invert(1) hue-rotate(180deg) brightness(.75) contrast(1.12)}
 
 .cco-fleet-links{border-top:1px solid #2c4961;padding-top:12px;margin-top:14px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}.cco-fleet-links span{font-size:9px;letter-spacing:1px;font-weight:850;color:#82a7c8}.cco-fleet-links small{color:#9fbed5;font-size:10px}.cco-fleet-links a{padding:7px 10px;font-size:11px;background:#133e58;border-radius:6px;border:1px solid #2b6c8b;text-decoration:none;color:#a7e6ff}
+
+/* Operator-controlled SIU GPS polling. The full fleet is never refetched at once. */
+.gpsSettings{display:flex;flex-direction:column;gap:7px;min-width:220px;max-width:320px}
+.gpsSettings label{font-size:10px;font-weight:800;color:#a9c6df}
+.gpsSettings select{background:#0c2133;border:1px solid #31546d;border-radius:7px;color:#dff2ff;min-height:38px;padding:8px;font-size:11px;max-width:100%}
+.gpsSettings small{font-size:10px;line-height:1.5;color:#89aeca}
+.gpsSettings .btn{align-self:flex-start}
+@media(max-width:740px){.gpsSettings{width:100%;max-width:none}}

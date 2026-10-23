@@ -193,3 +193,17 @@ SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'fb_%';
 ```
 
 Esse SELECT retorna as tabelas realmente presentes. Não execute `DROP`, `TRUNCATE`, nem scripts de recriação para diagnosticar essa divergência. Para auditoria das cotas: https://developers.cloudflare.com/d1/observability/billing/.
+
+
+## Atualização GPS adaptativa — CCO (23/10/2026)
+
+O CCO antes consultava **todos** os itinerários em sequência e só então esperava 90 segundos; esse processo demorava vários minutos quando a memória D1 trazia dezenas de rotas. A nova atualização é opcional, fica ativa apenas com a aba **visível**, e oferece:
+- **15 segundos:** modo rápido; consulta o ônibus selecionado e no máximo **2 itinerários** por rodada.
+- **30 segundos (padrão):** consulta o carro em foco e até **4 itinerários** por rodada.
+- **60 segundos:** modo econômico; carro selecionado e até **5 itinerários** por rodada.
+
+Os lotes favorecem o itinerário selecionado e linhas com carros vistos recentemente, mas incluem rodízio entre outras rotas. Portanto, **15/30/60 s são os intervalos entre rodadas, NÃO a frequência garantida de atualização de cada um dos 83 itinerários**. A duração das respostas SIU pode elevar o intervalo real. Caso falhem seguidas rodadas, há backoff de até 4×. É possível desligar ou consultar manualmente. Após varredura inicial, o GPS automático só opera quando a opção foi marcada. Ao trocar a aba, pausa; ao voltar, retoma.
+
+No Worker, cache das posições passa a **12 s por veículo** e **20 s por itinerário**, com origem HTTP SIU e deduplicação já existente. O campo `consultadoEm` agora conserva a data/hora da **requisição efetiva feita ao SIU**, incluindo respostas vindas do cache. Isso não comprova a data da medição original do módulo GPS do ônibus. A D1 mantém a política de persistir **no máximo uma posição por carro a cada 5 minutos**, sem multiplicar escrita na D1 por causa do polling mais ágil.
+
+Não mantém monitoramento em segundo plano com a aba fechada, não envia alterações ao SIU e não garante novos pontos quando o próprio sistema do operador demora a atualizar.
