@@ -138,22 +138,25 @@ async function getVehicles(route){
 async function scanStop(id){
  if(s.stop||s.scanned.has(id))return;
  const d=await api("/api/predictions?stop="+encodeURIComponent(id));
+ let complete=true;
  for(const p of d.previsoes||[]){
+  if(s.stop){complete=false;break;}
   if(!p.itinerario||!(/^[\w-]{1,32}$/.test(p.itinerario)))continue;
   if(s.routes.has(p.itinerario))continue;
-  s.routes.add(p.itinerario);
-  try{await getVehicles(p.itinerario);}catch(e){s.errors++;}
+  try{
+   await getVehicles(p.itinerario);
+   s.routes.add(p.itinerario);
+   scheduleSave();
+  }catch(e){s.errors++;complete=false;}
  }
- s.scanned.add(id);scheduleSave();
+ if(complete)s.scanned.add(id);
+ scheduleSave();
 }
 async function run(){
  if(s.running||!memoryReady)return;
  const resume=isResumable();
- if(!resume){
-   // Nova passagem: mantém veículos históricos, mas revalida paradas e rotas.
-   s.done=0;s.errors=0;s.lines=[];s.routes.clear();s.scanned.clear();s.geometry.clear();
-   s.phase="new";s.nextLineIndex=0;s.secondary=[];s.secondaryIndex=0;s.wide=el("wide").checked;
- }
+ // Só reiniciamos o checkpoint após obter um catálogo válido.
+ // Um erro temporário na API não pode apagar rotas já descobertas.
  s.running=true;s.stop=false;s.poll=false;s.mode="live";buttonState();
  tag("CONSULTANDO SIU • POSIÇÕES RECÉM-CONSULTADAS");
  try{
@@ -172,8 +175,9 @@ async function run(){
        "Não houve linhas interpretáveis na resposta do SIU. Consulte /api/diagnostics/lines.",true);
      return;
    }
-   s.lines=d.linhas;
-   s.phase="quick";
+   s.done=0;s.errors=0;s.lines=d.linhas;s.routes.clear();s.scanned.clear();
+   s.geometry.clear();s.phase="quick";s.nextLineIndex=0;s.secondary=[];s.secondaryIndex=0;
+   s.wide=el("wide").checked;
    await checkpoint();
   } else {
    say("Retomando do checkpoint: "+s.done+"/"+s.lines.length+" linhas. Rotas e carros anteriores foram preservados.");
@@ -235,7 +239,7 @@ async function run(){
    if(el("poll").checked){s.poll=true;setTimeout(refresh,90000);}
   }
  }catch(e){
-  say("Falha no SIU: "+e.message+". Progresso anterior preservado; tente Retomar varredura.",true);
+  say("Falha no SIU: "+e.message+". Progresso anterior preservado; tente novamente.",true);
  }finally{
   s.running=false;
   await checkpoint();
