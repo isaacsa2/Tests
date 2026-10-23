@@ -1,7 +1,7 @@
 "use strict";
 (()=>{
 const id=name=>document.getElementById(name);
-const state={lines:[],schedule:[],variants:[],latestRequest:0,installPrompt:null,origins:[],origin:null,stopsRequest:0,openStop:null};
+const state={lines:[],schedule:[],variants:[],latestRequest:0,installPrompt:null,origins:[],origin:null,stopsRequest:0,openStop:null,stopBatchCursor:new Map(),stopBatchResults:new Map(),stopBatchToken:0,stopBatchRunning:false};
 const API_TIMEOUT=55000;
 function feedback(text,error=false){
  id("feedback").textContent=text;
@@ -167,7 +167,11 @@ async function getStop(){
  finally{b.disabled=false;}
 }
 function resetStops(message){
- state.stopsRequest++;state.origins=[];state.origin=null;state.openStop=null;
+ state.stopsRequest++;state.stopBatchToken++;
+ state.stopBatchCursor.clear();state.stopBatchResults.clear();
+ state.origins=[];state.origin=null;state.openStop=null;
+ id("sync15Stops").disabled=true;
+ id("stopBatchStatus").textContent="Selecione a origem para sincronizar previsões.";
  id("originTabs").replaceChildren();
  id("originInfo").hidden=true;
  id("stopList").replaceChildren(make("li","empty","Os pontos de cada origem aparecerão aqui."));
@@ -184,7 +188,11 @@ function groupStops(paradas){
   const key=plain(label);
   if(!groups.has(key))groups.set(key,{key,label,stops:[],seen:new Set()});
   const g=groups.get(key);
-  if(!g.seen.has(p.id)){g.seen.add(p.id);g.stops.push(String(p.id));}
+  if(!g.seen.has(p.id)){
+   g.seen.add(p.id);
+   g.stops.push({id:String(p.id),nome:String(p.nome||"").trim().slice(0,180),
+     codigoSIU:String(p.codigoSIU||"").trim().slice(0,40)});
+  }
  }
  return [...groups.values()].map(({seen,...g})=>g);
 }
@@ -227,7 +235,9 @@ function renderOriginTabs(){
 function selectOrigin(key){
  const group=state.origins.find(g=>g.key===key);
  if(!group)return;
- state.origin=key;state.openStop=null;
+ state.stopBatchToken++;state.origin=key;state.openStop=null;
+ id("sync15Stops").disabled=state.stopBatchRunning;
+ id("stopBatchStatus").textContent="Até 15 paradas por lote · "+group.stops.length+" nesta origem.";
  for(const tab of id("originTabs").children){
   const on=tab.dataset.origin===key;
   tab.setAttribute("aria-selected",String(on));tab.tabIndex=on?0:-1;
@@ -237,11 +247,14 @@ function selectOrigin(key){
  group.stops.forEach((stop,i)=>{
   const li=make("li","stop");
   const row=make("button","stop-row");
-  row.type="button";row.dataset.seq=String(i+1);row.setAttribute("aria-expanded","false");
-  const name=make("span","stop-name","Ponto "+stop);
-  name.append(make("small",null,i===0?"Primeiro ponto da origem":i===group.stops.length-1?"Último ponto da origem":(i+1)+"º ponto"));
+  row.type="button";row.dataset.seq=String(i+1);
+  row.dataset.stopId=stop.id;row.setAttribute("aria-expanded","false");
+  const name=make("span","stop-name",stop.nome||"Ponto "+stop.id);
+  name.append(make("small",null,"Código "+(stop.codigoSIU||stop.id)+" · "+(i+1)+"º ponto"));
+  const preview=make("small","stop-preview",state.stopBatchResults.get(stop.id)||"");
+  name.append(preview);
   row.append(name,make("span","stop-go","VER PREVISÃO ›"));
-  const panel=make("div","stop-panel");panel.hidden=true;panel.id="stop-panel-"+stop+"-"+i;
+  const panel=make("div","stop-panel");panel.hidden=true;panel.id="stop-panel-"+stop.id+"-"+i;
   row.setAttribute("aria-controls",panel.id);
   row.addEventListener("click",()=>toggleStop(stop,row,panel));
   li.append(row,panel);list.append(li);
@@ -262,6 +275,7 @@ function renderOriginInfo(){
  box.hidden=false;
 }
 async function toggleStop(stop,row,panel){
+ const stopId=stop.id;
  if(row.getAttribute("aria-expanded")==="true"){
   row.setAttribute("aria-expanded","false");panel.hidden=true;state.openStop=null;
   row.querySelector(".stop-go").textContent="VER PREVISÃO ›";
@@ -272,21 +286,66 @@ async function toggleStop(stop,row,panel){
   other.querySelector(".stop-go").textContent="VER PREVISÃO ›";
   document.getElementById(other.getAttribute("aria-controls")).hidden=true;
  }
- const token=Symbol(stop);state.openStop=token;
+ const token=Symbol(stopId);state.openStop=token;
  row.setAttribute("aria-expanded","true");panel.hidden=false;
  row.querySelector(".stop-go").textContent="FECHAR";
  panel.replaceChildren(make("div","empty","Consultando previsões do SIU…"));
  try{
-  const d=await api("/api/predictions?stop="+encodeURIComponent(stop));
+  const d=await api("/api/predictions?stop="+encodeURIComponent(stopId));
   if(state.openStop!==token)return;
   const count=renderPredictions(panel,d.previsoes);
-  feedback(count?"Previsões do ponto "+stop+" consultadas no SIU.":"O SIU não informou previsão para o ponto "+stop+" agora.");
+  feedback(count?"Previsões de "+(stop.nome||"ponto "+stopId)+" consultadas no SIU.":"O SIU não informou previsão para "+(stop.nome||"ponto "+stopId)+" agora.");
  }catch(e){
   if(state.openStop!==token)return;
   panel.replaceChildren(make("div","empty",e.message));
   feedback("Falha na previsão: "+e.message,true);
  }
 }
+async function syncNext15Stops(){
+ const group=state.origins.find(g=>g.key===state.origin);
+ if(!group?.stops.length||state.stopBatchRunning)return;
+ if(document.hidden){id("stopBatchStatus").textContent="Abra esta aba para consultar as paradas.";return;}
+ state.stopBatchRunning=true;
+ const button=id("sync15Stops");button.disabled=true;
+ const token=++state.stopBatchToken;
+ const start=state.stopBatchCursor.get(group.key)||0;
+ const batch=group.stops.slice(start,start+15);
+ let completed=0,failed=0;
+ const status=id("stopBatchStatus");
+ try{
+  for(const stop of batch){
+   if(token!==state.stopBatchToken||document.hidden)break;
+   try{
+    const data=await api("/api/predictions?stop="+encodeURIComponent(stop.id));
+    if(token!==state.stopBatchToken)break;
+    const entries=Array.isArray(data.previsoes)?data.previsoes:[];
+    const first=entries.find(v=>v?.previsao);
+    const label=entries.length?"SIU: "+(first?.previsao||entries.length+" previsão(ões)"):"Sem previsão no SIU";
+    state.stopBatchResults.set(stop.id,label);
+    const row=[...id("stopList").querySelectorAll(".stop-row")].find(v=>v.dataset.stopId===stop.id);
+    const preview=row?.querySelector(".stop-preview");
+    if(preview)preview.textContent=label;
+   }catch(e){
+    failed++;
+    state.stopBatchResults.set(stop.id,"Falha na consulta");
+   }
+   completed++;
+   status.textContent="Consultados "+completed+"/"+batch.length+" pontos do lote · "+
+      (start+completed)+"/"+group.stops.length+" da origem · "+failed+" falhas.";
+  }
+  if(token===state.stopBatchToken){
+   const next=start+completed;
+   state.stopBatchCursor.set(group.key,next>=group.stops.length?0:next);
+   if(next>=group.stops.length)status.textContent="Origem concluída: "+group.stops.length+
+     " pontos examinados. Próxima rodada recomeça do primeiro.";
+   else if(document.hidden)status.textContent="Pausado: "+next+"/"+group.stops.length+" pontos. Retome ao voltar.";
+  }
+ }finally{
+  state.stopBatchRunning=false;
+  button.disabled=!state.origins.length;
+ }
+}
+
 async function loadVariant(){
  resetStops("Carregando origens da linha…");
  await Promise.all([loadSchedule(),loadStops()]);
@@ -405,6 +464,7 @@ id("lineFilter").addEventListener("input",renderLineChoices);
 id("lineSelect").addEventListener("change",selectLine);
 id("variantSelect").addEventListener("change",loadVariant);
 id("refreshStops").addEventListener("click",loadStops);
+id("sync15Stops").addEventListener("click",syncNext15Stops);
 id("daySelect").addEventListener("change",renderSchedule);
 id("refreshSchedule").addEventListener("click",loadSchedule);
 id("checkStop").addEventListener("click",getStop);

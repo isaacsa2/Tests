@@ -105,10 +105,11 @@
    <div class="panel-heading"><div><div class="panel-eyebrow">FERRAMENTAS DA CENTRAL</div><h2>Controle de coleta e memória</h2></div><span class="panel-tag">DADOS LOCAIS</span></div>
    <div class="settings-body">
     <label class="check-option"><input id="wide" type="checkbox" checked><span><strong>Varredura ampliada</strong><small>Inclui paradas adicionais e sublinhas</small></span></label>
-    <label class="check-option"><input id="poll" type="checkbox"><span><strong>GPS automático</strong><small>Atualiza lotes de linhas enquanto a página estiver visível</small></span></label>
+    <label class="check-option"><input id="poll" type="checkbox"><span><strong>GPS automático</strong><small>Consulta até 10 itinerários por lote, com a página visível</small></span></label>
     <div class="gpsSettings"><label for="gpsInterval">Intervalo entre rodadas</label>
       <select id="gpsInterval"><option value="15">15 s · rápido (foco no carro)</option><option value="30" selected>30 s · equilibrado</option><option value="60">60 s · econômico</option></select>
       <button id="gpsNow" class="btn btn-ghost" type="button">↻ Atualizar GPS agora</button>
+      <small class="gps-batch-info">Lote máximo: 10 itinerários em sequência, independentemente do intervalo selecionado.</small>
       <small id="gpsState" role="status" aria-live="polite">Aguardando ativação. Posições do SIU podem ser mais antigas que a consulta.</small>
     </div>
     <button id="export" class="btn btn-ghost" type="button">↧ Exportar itinerários GeoJSON</button>

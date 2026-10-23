@@ -110,3 +110,5 @@ footer{padding:20px 4px;font-size:11px;color:var(--dim);line-height:1.8}
  .time-grid{max-height:520px}.stop-list{max-height:640px}
 }
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+.stops-batch-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:11px 0;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.stops-batch-controls small{font-size:11px;color:var(--muted);line-height:1.5;flex:1;min-width:160px}.stop-preview{color:var(--green-hi)!important;margin-top:5px!important;font-weight:800}

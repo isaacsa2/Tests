@@ -191,7 +191,7 @@ async function cachedSharedRead(key,seconds,loader,ctx){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-adaptive-gps-poll-v7",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-gps10-stops15-names-v8",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
     try{
@@ -259,7 +259,15 @@ async function action(url,env,ctx){
     catch {}
     if(!success(d)||!array(d.paradas).length)
       d=await upstream("V3/buscarParadasPorLinhaComCoordenadas/"+n+"/0/"+city+"/retornoJSONH","retornoJSONH",21600,ctx);
-    return {paradas:success(d)?array(d.paradas).filter(x=>x?.cod!=null).map(x=>({id:String(x.cod),sentido:String(x.sent??x.sentido??"")})):[]};
+    return {paradas:success(d)?array(d.paradas)
+      .filter(x=>x?.cod!=null&&x.cod!=="Sem Dados")
+      .slice(0,2500).map(x=>({
+        id:String(x.cod).slice(0,40),
+        sentido:String(x.sent??x.sentido??"").trim().slice(0,120),
+        // O APK usa dt.end como o título do ponto e dt.sent como origem.
+        nome:String(x.end??x.desc??"").trim().slice(0,180),
+        codigoSIU:String(x.siu??"").trim().slice(0,40)
+      })):[]};
   }
   if(p==="/api/predictions"){
     const n=ident(q.get("stop")),d=await upstream("V3/buscarPrevisoes/"+n+"/false/0/"+city+"/retornoJSON","retornoJSON",180,ctx);

@@ -452,7 +452,7 @@ async function run(){
      try{await scanStop(s.secondary[i]);}catch(e){s.errors++;}
      if(s.stop)break;
      s.secondaryIndex=i+1;
-     if(i%5===0)say("Varredura ampliada: "+(i+1)+"/"+s.secondary.length+" paradas; "+s.buses.size+" carros conhecidos.");
+     if((i+1)%15===0||i+1===s.secondary.length)say("Varredura ampliada: "+(i+1)+"/"+s.secondary.length+" paradas (lotes de 15); "+s.buses.size+" carros conhecidos.");
      scheduleSave();
     }
    } else s.secondaryIndex=s.secondary.length;
@@ -486,7 +486,7 @@ function scheduleGpsNext(){
  const delay=Math.min(120000,cfg.seconds*1000*Math.min(4,2**Math.floor(gpsFailCycles/2)));
  gpsTimer=setTimeout(()=>{gpsTimer=null;void refresh();},delay);
  gpsInfo("Monitoramento ativado · próxima rodada em "+Math.ceil(delay/1000)+" s · "+
-  (watch.lines.length?gpsPool().size+" itinerários das linhas "+watch.lines.join(", ")+".":(s.routes.size||0)+" itinerários conhecidos."));
+  (watch.lines.length?gpsPool().size+" itinerários das linhas "+watch.lines.join(", ")+".":(s.routes.size||0)+" itinerários conhecidos.")+" Lotes de até "+cfg.routeBatch+".");
 }
 function startGpsPolling(){
  if(!el("poll").checked){pauseGpsPolling();gpsInfo("GPS automático desligado.");return;}

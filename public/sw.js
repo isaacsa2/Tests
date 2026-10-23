@@ -1,5 +1,5 @@
 "use strict";
-const VERSION="feirabus-passenger-v2";
+const VERSION="feirabus-passenger-v3";
 const STATIC=[
   "/passageiro.html","/manifest.webmanifest","/assets/passenger.css",
   "/assets/passenger.js","/assets/fleet.js","/favicon.svg",
