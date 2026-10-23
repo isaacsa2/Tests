@@ -153,7 +153,7 @@ A página usa bibliotecas de mapa externas e requer conexão para carregar os ma
 
 ## Cloudflare D1 — Memória compartilhada entre dispositivos
 
-A base informada para o projeto possui UUID `fef5837c-0c0f-4c63-b625-55c85303999b` e o Worker `tests` usa o binding **`FEIRABUS_DB`**. A configuração Wrangler inclui `database_name: "feirabus"` como **nome provisório**: abra Cloudflare > Storage & Databases > D1 > banco com este UUID e, se o nome verdadeiro for diferente, altere somente `database_name` para o nome mostrado. O UUID não muda. Não foi possível consultar a conta Cloudflare a partir desta conversa.
+A base informada para o projeto possui UUID `fef5837c-0c0f-4c63-b625-55c85303999b` e o Worker `tests` usa o binding **`FEIRABUS_DB`**. O banco D1 foi confirmado pelo proprietário com o nome **`db_app`**; o `wrangler.jsonc` registra `database_name: "db_app"` e o mesmo UUID. O binding usado no código permanece `FEIRABUS_DB`. O CI valida o repositório, mas a existência do vínculo e a leitura real da base só podem ser confirmadas depois da implantação na Cloudflare.
 
 A D1 salva automaticamente, a partir de consultas bem-sucedidas ao SIU:
 - Catálogo de linhas (`fb_lines`); itinerários descobertos (`fb_routes`);
@@ -167,6 +167,6 @@ Endpoints: `/api/memory/status` (verifica vínculo/contagens), `/api/memory/snap
 npx wrangler d1 migrations apply FEIRABUS_DB --remote
 npx wrangler deploy
 ```
-Em Workers Builds conectado ao GitHub, mantenha `npm test` no build e `npx wrangler deploy` como deploy; a inicialização idempotente permite que o Worker prepare o schema na primeira chamada. Não execute a migração com nome de banco incorreto.
+Em Workers Builds conectado ao GitHub, mantenha `npm test` no build e `npx wrangler deploy` como deploy; a inicialização idempotente permite que o Worker prepare o schema na primeira chamada. O nome do banco já foi confirmado como `db_app`. Não execute migrações em uma base diferente.
 
 **Nota de segurança:** dados são provenientes do serviço público SIU. Para redistribuição ampla/comercial, alinhe autorização do operador. D1 mantém um registro por prefixo, com data de observação, sem dados pessoais ou histórico de percurso. Se o D1 não estiver configurado/disponível, o gateway SIU continua funcionando.
