@@ -2,13 +2,16 @@
 (function(){
 const el=id=>document.getElementById(id), delay=ms=>new Promise(r=>setTimeout(r,ms));
 const demo=[{id:"EX-101",linha:"Demonstração",lat:-12.260,lon:-38.966},{id:"EX-202",linha:"Demonstração",lat:-12.272,lon:-38.957},{id:"EX-303",linha:"Demonstração",lat:-12.251,lon:-38.978}];
-const s={mode:"demo",running:false,stop:false,lines:[],buses:new Map(),routes:new Set(),scanned:new Set(),done:0,errors:0,poll:false,geometry:new Map(),phase:"new",nextLineIndex:0,secondary:[],secondaryIndex:0,wide:true};
+const s={mode:"demo",running:false,stop:false,lines:[],buses:new Map(),routes:new Set(),scanned:new Set(),done:0,errors:0,poll:false,geometry:new Map(),phase:"new",nextLineIndex:0,secondary:[],secondaryIndex:0,wide:true,routeLines:new Map()};
 const memory=globalThis.FeiraBusMemory;
 const GPS=globalThis.FeiraBusGps;
 const checkedThisVisit=new Set();
 let gpsTimer=null,gpsBusy=false,gpsCursor=0,gpsFailCycles=0;
 let memoryReady=false,memoryAvailable=false,saveTimer=null,previousRequest=0;
 let cloudSyncBusy=false;
+// Filtro "GPS por linha": linhas pedidas pelo operador e itinerários conhecidos delas.
+const watch={lines:[],routes:new Set(),busy:false,discoveredAt:new Map()};
+const ROUTE_ID=/^[A-Za-z0-9_-]{1,32}$/;
 const map=L.map("map",{zoomControl:true}).setView([-12.265,-38.965],12);
 const pins=L.layerGroup().addTo(map), linesLayer=L.layerGroup().addTo(map);
 let selectedVehicleId=null;
@@ -42,6 +45,19 @@ function stamp(value){
 }
 function isRecent(v){
  return s.mode!=="demo"&&checkedThisVisit.has(String(v.id))&&Number.isFinite(v.lastSeen)&&Date.now()-v.lastSeen<=300000;
+}
+function learnRoute(route,line){
+ const id=String(route??""),name=GPS.normalizeLine(line);
+ if(!ROUTE_ID.test(id)||!name)return;
+ if(s.routeLines.get(id)===name)return;
+ s.routeLines.set(id,name);
+ if(watch.lines.includes(name))watch.routes.add(id);
+}
+function isWatched(v){
+ return watch.lines.includes(GPS.normalizeLine(v.linha))||watch.routes.has(String(v.itinerario??""));
+}
+function refreshWatchRoutes(){
+ watch.routes=new Set([...s.routeLines].filter(([,line])=>watch.lines.includes(line)).map(([route])=>route));
 }
 function eventLog(message,level="info"){
  const now=Date.now();
@@ -137,7 +153,8 @@ function snapshot(){
   version:1,phase:s.phase,lines:s.lines,buses:[...s.buses.values()].map(({checkedSession,...v})=>v),
   routes:[...s.routes],scanned:[...s.scanned],done:s.done,errors:s.errors,
   nextLineIndex:s.nextLineIndex,secondary:s.secondary,secondaryIndex:s.secondaryIndex,wide:s.wide,
-  pollRequested:el("poll").checked,gpsInterval:GPS.getConfig(el("gpsInterval").value).seconds
+  pollRequested:el("poll").checked,gpsInterval:GPS.getConfig(el("gpsInterval").value).seconds,
+  routeLines:[...s.routeLines].slice(-5000)
  };
 }
 function memoryLabel(label){el("memoryState").textContent=label;}
@@ -173,6 +190,8 @@ async function restore(){
    s.nextLineIndex=Math.min(s.lines.length,Math.max(0,Number(data.nextLineIndex)||0));
    s.secondary=(data.secondary||[]).filter(x=>typeof x==="string");
    s.secondaryIndex=Math.min(s.secondary.length,Math.max(0,Number(data.secondaryIndex)||0));
+   for(const pair of Array.isArray(data.routeLines)?data.routeLines:[])if(Array.isArray(pair))learnRoute(pair[0],pair[1]);
+   for(const v of s.buses.values())learnRoute(v.itinerario,v.linha);
    s.wide=data.wide!==false;s.phase=["quick","wide","done"].includes(data.phase)?data.phase:"new";
    el("wide").checked=s.wide;el("poll").checked=data.pollRequested===true;
    el("gpsInterval").value=String(GPS.getConfig(data.gpsInterval).seconds);
@@ -209,6 +228,7 @@ async function hydrateSharedMemory(){
   let imported=0;
   for(const v of res.veiculos){
    if(!v?.id||!Number.isFinite(v.lat)||!Number.isFinite(v.lon))continue;
+   learnRoute(v.itinerario,v.linha);
    const old=s.buses.get(String(v.id));
    if(old&&Number(old.lastSeen)>=Number(v.lastSeen))continue;
    s.buses.set(String(v.id),{...v,origem:"d1",lastSeen:Number(v.lastSeen)||0});
@@ -237,6 +257,7 @@ function say(t,error=false){
 function tag(t){el("mapInfo").textContent=t;updateSource();}
 function uniqueVehicle(v){
  if(!v||!v.id||!Number.isFinite(Number(v.lat))||!Number.isFinite(Number(v.lon)))return;
+ learnRoute(v.itinerario,v.linha);
  const key=String(v.id).trim();if(!key)return;
  const old=s.buses.get(key);
  const fetched=Date.parse(String(v.consultadoEm||""));
@@ -269,12 +290,14 @@ function paint(){
  const visible=original.filter(v=>{
   if(![v.id,v.linha,v.itinerario].some(x=>String(x??"").toLocaleLowerCase("pt-BR").includes(query)))return false;
   if(line&&String(v.linha)!==line)return false;
+  if(!demoMode&&watch.lines.length&&!isWatched(v))return false;
   if(!demoMode&&mode==="recent"&&!isRecent(v))return false;
   if(!demoMode&&mode==="old"&&isRecent(v))return false;
   if(demoMode&&mode!=="all")return false;
   return true;
  });
  el("listCount").textContent=visible.length;
+ if(watch.lines.length)renderWatchChips();else el("lineWatchChips").hidden=true;
  pins.clearLayers();
  for(const v of visible){
   const fresh=isRecent(v);
@@ -303,7 +326,10 @@ function paint(){
   status.className="bus-status "+(demoMode?"demo":recentConsult?"recent":"");
   status.textContent=demoMode?"Simulado":recentConsult?"Recente":"Histórico";
   left.append(title,sub);b.append(left,status);
-  b.addEventListener("click",()=>selectVehicle(v,demoMode));
+  b.addEventListener("click",()=>{
+   selectVehicle(v,demoMode);
+   if(isMobile())el("detalhe").scrollIntoView({behavior:"smooth",block:"start"});
+  });
   list.append(b);
  }
  if(!visible.length){
@@ -314,7 +340,9 @@ function paint(){
   if(v)vehicleView(v,demoMode);else clearDetail();
  }
 }
-function fit(){const vals=s.mode==="demo"?demo:[...s.buses.values()];if(!vals.length)return;map.fitBounds(L.latLngBounds(vals.map(v=>[v.lat,v.lon])).pad(.20),{maxZoom:14});}
+// No celular o mapa fica oculto fora da aba Mapa (tamanho 0): enquadrar ao abri-la.
+let pendingFit=false;
+function fit(){if(!map.getSize().x){pendingFit=true;return;}pendingFit=false;const known=[...s.buses.values()],only=watch.lines.length?known.filter(isWatched):known;const vals=s.mode==="demo"?demo:only.length?only:known;if(!vals.length)return;map.fitBounds(L.latLngBounds(vals.map(v=>[v.lat,v.lon])).pad(.20),{maxZoom:14});}
 async function api(path,urgent=false){
  if(!urgent){const wait=Math.max(0,1600-(Date.now()-previousRequest));if(wait)await delay(wait);}
  previousRequest=Date.now();
@@ -338,6 +366,7 @@ async function scanStop(id){
  for(const p of d.previsoes||[]){
   if(s.stop){complete=false;break;}
   if(!p.itinerario||!(/^[\w-]{1,32}$/.test(p.itinerario)))continue;
+  learnRoute(p.itinerario,p.linha);
   if(s.routes.has(p.itinerario))continue;
   try{
    await getVehicles(p.itinerario);
@@ -444,6 +473,8 @@ async function run(){
  }
 }
 function gpsInfo(label){el("gpsState").textContent=label;}
+// Com filtro de linhas ativo, o GPS automático consulta só os itinerários delas.
+function gpsPool(){return watch.lines.length?watch.routes:s.routes;}
 function pauseGpsPolling(){
  s.poll=false;
  if(gpsTimer!==null){clearTimeout(gpsTimer);gpsTimer=null;}
@@ -455,13 +486,13 @@ function scheduleGpsNext(){
  const delay=Math.min(120000,cfg.seconds*1000*Math.min(4,2**Math.floor(gpsFailCycles/2)));
  gpsTimer=setTimeout(()=>{gpsTimer=null;void refresh();},delay);
  gpsInfo("Monitoramento ativado · próxima rodada em "+Math.ceil(delay/1000)+" s · "+
-  (s.routes.size||0)+" itinerários conhecidos.");
+  (watch.lines.length?gpsPool().size+" itinerários das linhas "+watch.lines.join(", ")+".":(s.routes.size||0)+" itinerários conhecidos."));
 }
 function startGpsPolling(){
  if(!el("poll").checked){pauseGpsPolling();gpsInfo("GPS automático desligado.");return;}
  if(!memoryReady||s.running){gpsInfo("GPS aguardando término da varredura.");return;}
  if(document.hidden){pauseGpsPolling();gpsInfo("GPS pausado: página em segundo plano.");return;}
- if(!s.routes.size&&!s.buses.has(String(selectedVehicleId))){
+ if(!gpsPool().size&&!s.buses.has(String(selectedVehicleId))){
   pauseGpsPolling();gpsInfo("Descubra itinerários ou localize um veículo para começar.");
   return;
  }
@@ -486,7 +517,7 @@ async function refresh(once=false){
     ok++;queries++;
    }catch(e){failures++;queries++;eventLog("Consulta do carro "+target.id+" indisponível: "+e.message,"warn");}
   }
-  const batch=GPS.chooseRoutes(s.routes.values(),s.buses.values(),selectedVehicleId,
+  const batch=GPS.chooseRoutes(gpsPool().values(),s.buses.values(),selectedVehicleId,
     gpsCursor,cfg.routeBatch);
   gpsCursor=batch.cursor;
   for(const id of batch.ids){
@@ -556,12 +587,158 @@ async function clearMemory(){
   if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}
   if(memoryAvailable)await memory.clear();
   clearDetail();s.mode="demo";s.phase="new";s.lines=[];s.buses.clear();s.routes.clear();s.scanned.clear();
+  s.routeLines.clear();watch.routes.clear();watch.discoveredAt.clear();
   pauseGpsPolling();el("poll").checked=false;
   s.geometry.clear();s.secondary=[];s.nextLineIndex=0;s.secondaryIndex=0;s.done=0;s.errors=0;
   checkedThisVisit.clear();memoryLabel(memoryAvailable?"Memória limpa":"Indisponível");
   tag("MODO DEMONSTRAÇÃO");say("Memória deste navegador apagada. O histórico compartilhado na D1 permanece disponível; use Sincronizar histórico para restaurá-lo.");
   buttonState();paint();
  }catch(e){memoryLabel("Erro ao limpar: "+e.message);}
+}
+function lineInfo(text,error=false){
+ el("lineWatchState").textContent=text;
+ el("lineWatchState").classList.toggle("is-error",error);
+}
+function renderWatchChips(){
+ const box=el("lineWatchChips");box.replaceChildren();
+ box.hidden=!watch.lines.length;
+ if(!watch.lines.length)return;
+ const known=[...s.buses.values()];
+ for(const line of watch.lines){
+  const count=known.filter(v=>GPS.normalizeLine(v.linha)===line||s.routeLines.get(String(v.itinerario??""))===line).length;
+  const chip=document.createElement("button");chip.type="button";chip.className="watch-chip";
+  chip.title="Remover a linha "+line+" do filtro";
+  const name=document.createElement("b");name.textContent=line;
+  const total=document.createElement("small");total.textContent=count+(count===1?" carro":" carros");
+  chip.append(name,total,document.createTextNode(" ✕"));
+  chip.addEventListener("click",()=>{
+   setWatch(watch.lines.filter(x=>x!==line));
+   el("lineWatch").value=watch.lines.join(", ");
+   lineInfo(watch.lines.length?"Filtro: "+watch.lines.join(", ")+".":"Filtro de linhas removido; mostrando toda a frota conhecida.");
+  });
+  box.append(chip);
+ }
+ const clear=document.createElement("button");clear.type="button";clear.className="watch-chip watch-clear";clear.id="lineWatchClear";
+ clear.textContent="Limpar filtro";
+ clear.addEventListener("click",()=>{setWatch([]);el("lineWatch").value="";lineInfo("Filtro de linhas removido; mostrando toda a frota conhecida.");});
+ box.append(clear);
+}
+function setWatch(lines){
+ const had=watch.lines.length>0;
+ watch.lines=lines.slice(0,8);
+ refreshWatchRoutes();
+ try{localStorage.setItem("feirabus-cco-watch-lines",watch.lines.join(","));}catch{}
+ if(watch.lines.length)tag("FILTRO DE LINHAS · "+watch.lines.join(", "));
+ else if(had)tag(s.mode==="demo"?"MODO DEMONSTRAÇÃO":"FROTA CONHECIDA · SEM FILTRO DE LINHAS");
+ paint();
+ if(s.poll)scheduleGpsNext();
+}
+// Itinerários de uma linha: previsões do primeiro ponto de cada sentido,
+// o mesmo caminho da varredura, mas só para as linhas pedidas.
+async function discoverLine(entry,line){
+ if(Date.now()-(watch.discoveredAt.get(line)||0)<20*60*1000)return;
+ const r=await api("/api/stops?line="+encodeURIComponent(entry.id));
+ const firsts=new Map();
+ for(const p of r.paradas||[]){
+  const key=String(p.sentido||"geral");
+  if(!firsts.has(key)&&/^\d{1,15}$/.test(String(p.id)))firsts.set(key,String(p.id));
+ }
+ for(const stop of [...firsts.values()].slice(0,3)){
+  try{
+   const d=await api("/api/predictions?stop="+encodeURIComponent(stop));
+   for(const p of d.previsoes||[]){
+    learnRoute(p.itinerario,p.linha);
+    if(GPS.normalizeLine(p.linha)===line&&ROUTE_ID.test(String(p.itinerario??"")))s.routes.add(String(p.itinerario));
+   }
+  }catch(e){s.errors++;}
+ }
+ watch.discoveredAt.set(line,Date.now());
+}
+async function searchLines(){
+ const wanted=GPS.parseLineQuery(el("lineWatch").value);
+ if(!wanted.length){setWatch([]);lineInfo("Digite uma ou mais linhas, ex.: 07A, 007, 300.",true);return;}
+ if(s.running){lineInfo("A varredura da cidade está em andamento. Interrompa-a para buscar linhas específicas.",true);return;}
+ if(watch.busy)return;
+ watch.busy=true;el("lineWatchGo").disabled=true;
+ el("lineWatch").value=wanted.join(", ");
+ pauseGpsPolling();
+ for(let i=0;gpsBusy&&i<200;i++)await delay(300);
+ setWatch(wanted);
+ try{
+  if(!s.lines.length){
+   lineInfo("Carregando catálogo de linhas do SIU…");
+   const d=await api("/api/lines",true);
+   if(d.linhas?.length)s.lines=d.linhas;
+  }
+  const missing=[];
+  for(const line of wanted){
+   const entry=s.lines.find(l=>GPS.normalizeLine(l.numero)===line);
+   if(!entry){missing.push(line);continue;}
+   lineInfo("Descobrindo itinerários da linha "+line+"…");
+   try{await discoverLine(entry,line);}catch(e){s.errors++;eventLog("Itinerários da linha "+line+" indisponíveis: "+e.message,"warn");}
+  }
+  refreshWatchRoutes();
+  const routes=[...watch.routes].slice(0,24);
+  let ok=0;
+  for(const [i,route] of routes.entries()){
+   lineInfo("Consultando GPS: itinerário "+(i+1)+" de "+routes.length+"…");
+   try{await getVehicles(route,false);ok++;}catch(e){eventLog("Falha de GPS no itinerário "+route+": "+e.message,"warn");}
+  }
+  if(ok){s.mode="live";tag("GPS · LINHAS "+wanted.join(", "));}
+  paint();fit();
+  const recent=[...s.buses.values()].filter(v=>isWatched(v)&&isRecent(v)).length;
+  const parts=[];
+  parts.push(routes.length?recent+(recent===1?" carro consultado agora":" carros consultados agora")+" em "+ok+"/"+routes.length+" itinerários.":
+    "Nenhum itinerário encontrado agora para essas linhas (sem previsão nos pontos iniciais).");
+  if(missing.length)parts.push("Fora do catálogo SIU: "+missing.join(", ")+".");
+  parts.push("A posição GPS pode ser anterior à consulta.");
+  lineInfo(parts.join(" "),!routes.length);
+  eventLog("GPS por linha ("+wanted.join(", ")+"): "+recent+" carros, "+routes.length+" itinerários.");
+  scheduleSave();
+  if(isMobile())setView("mapa");
+ }catch(e){lineInfo("Falha na busca por linha: "+e.message,true);}
+ finally{
+  watch.busy=false;el("lineWatchGo").disabled=false;
+  if(el("poll").checked)startGpsPolling();
+ }
+}
+el("lineWatchGo").addEventListener("click",()=>void searchLines());
+el("lineWatch").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();void searchLines();}});
+// Modo celular: uma área por vez (Geral, Mapa, Frota, Eventos, Ajustes) com abas fixas embaixo.
+const mobileQuery=window.matchMedia("(max-width:740px)");
+const VIEWS=["geral","mapa","frota","eventos","ajustes"];
+function isMobile(){return mobileQuery.matches;}
+function setView(view){
+ if(!VIEWS.includes(view))view="mapa";
+ document.body.dataset.view=view;
+ for(const link of document.querySelectorAll(".rail-link")){
+  const on=link.dataset.view===view;
+  link.classList.toggle("active",on);
+  if(on)link.setAttribute("aria-current","page");else link.removeAttribute("aria-current");
+ }
+ if(isMobile()){
+  try{localStorage.setItem("feirabus-cco-view",view);}catch{}
+  window.scrollTo(0,0);
+  if(view==="mapa")setTimeout(()=>{map.invalidateSize();if(pendingFit)fit();},60);
+ }
+}
+for(const link of document.querySelectorAll(".rail-link")){
+ link.addEventListener("click",e=>{
+  if(isMobile()){e.preventDefault();setView(link.dataset.view);}
+  else setView(link.dataset.view);
+ });
+}
+mobileQuery.addEventListener?.("change",()=>setTimeout(()=>map.invalidateSize(),60));
+document.body.classList.add("m-views");
+{
+ let saved="mapa";
+ try{saved=localStorage.getItem("feirabus-cco-view")||"mapa";}catch{}
+ setView(isMobile()?saved:"geral");
+ let lines="";
+ try{lines=localStorage.getItem("feirabus-cco-watch-lines")||"";}catch{}
+ const restored=GPS.parseLineQuery(lines);
+ if(restored.length){el("lineWatch").value=restored.join(", ");setWatch(restored);
+  lineInfo("Filtro restaurado: "+restored.join(", ")+". Toque em Buscar GPS para atualizar as posições.");}
 }
 el("fleetStatus").addEventListener("change",paint);
 el("fleetLine").addEventListener("change",paint);

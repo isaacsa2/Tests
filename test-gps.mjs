@@ -30,3 +30,14 @@ assert.deepEqual(chooseRoutes([],[],null,0,4).ids,[]);
 assert.ok(chooseRoutes(["valid","../secret"],[],null,0,6).ids.every(x=>x==="valid"),"Route identifiers validated");
 assert.ok(chooseRoutes(all,[],null,0,2).ids.length<=2,"15 second mode remains rate-limited");
 console.log("OK: GPS 15/30/60 s, vehicle priority, fairness, safe route budgets and input validation.");
+
+const {normalizeLine,parseLineQuery}=globalThis.FeiraBusGps;
+assert.equal(normalizeLine("7"),"007");
+assert.equal(normalizeLine("07a"),"07A");
+assert.equal(normalizeLine("7A"),"07A");
+assert.equal(normalizeLine("300"),"300");
+assert.equal(normalizeLine("brt2"),"BRT2");
+assert.equal(normalizeLine("<script>"),"","Line tokens are validated");
+assert.deepEqual(parseLineQuery("07A, 007 300;7"),["07A","007","300"],"Duplicates removed after normalization");
+assert.equal(parseLineQuery("1 2 3 4 5 6 7 8 9 10").length,8,"Line search is bounded");
+console.log("OK: GPS line filter normalization and bounds.");

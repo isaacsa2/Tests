@@ -35,5 +35,22 @@
   // Advance the fair scan even if all the priority slots were taken.
   return {ids:chosen,cursor:(start+Math.max(1,limit-recentLimit))%all.length};
  }
- root.FeiraBusGps=Object.freeze({getConfig,chooseRoutes});
+ // Linhas no formato do catálogo SIU: "7" -> "007", "7A" -> "07A"; "BRT2" fica igual.
+ function normalizeLine(raw){
+  let v=String(raw??"").trim().toUpperCase().replace(/\s+/g,"");
+  if(!/^[A-Z0-9-]{1,12}$/.test(v))return "";
+  if(/^\d{1,2}$/.test(v))return v.padStart(3,"0");
+  const m=v.match(/^(\d)([A-Z])$/);
+  return m?"0"+m[1]+m[2]:v;
+ }
+ function parseLineQuery(text,max=8){
+  const out=[];
+  for(const part of String(text??"").split(/[\s,;\/]+/)){
+   const line=normalizeLine(part);
+   if(line&&!out.includes(line))out.push(line);
+   if(out.length>=max)break;
+  }
+  return out;
+ }
+ root.FeiraBusGps=Object.freeze({getConfig,chooseRoutes,normalizeLine,parseLineQuery});
 })(globalThis);

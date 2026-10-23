@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#080f1d">
 <meta name="description" content="FeiraBus CCO: monitoramento independente das linhas, itinerários e posições disponibilizadas pelo SIU de Feira de Santana.">
 <title>FeiraBus CCO | Centro de Controle Operacional</title>
@@ -26,15 +26,15 @@
 <div class="shell">
  <nav class="rail" aria-label="Navegação da central">
   <div class="rail-head">CCO <span>01</span></div>
-  <a class="rail-link active" href="#overview" aria-label="Visão geral"><span aria-hidden="true">▦</span><small>GERAL</small></a>
-  <a class="rail-link" href="#mapa" aria-label="Mapa de operações"><span aria-hidden="true">◎</span><small>MAPA</small></a>
-  <a class="rail-link" href="#frota" aria-label="Frota monitorada"><span aria-hidden="true">▤</span><small>FROTA</small></a>
-  <a class="rail-link" href="#eventos" aria-label="Eventos de monitoramento"><span aria-hidden="true">≡</span><small>EVENTOS</small></a>
-  <a class="rail-link" href="#config" aria-label="Configurações de varredura"><span aria-hidden="true">⚙</span><small>AJUSTES</small></a>
+  <a class="rail-link active" href="#overview" data-view="geral" aria-label="Visão geral"><span aria-hidden="true">▦</span><small>GERAL</small></a>
+  <a class="rail-link" href="#mapa" data-view="mapa" aria-label="Mapa de operações"><span aria-hidden="true">◎</span><small>MAPA</small></a>
+  <a class="rail-link" href="#frota" data-view="frota" aria-label="Frota monitorada"><span aria-hidden="true">▤</span><small>FROTA</small></a>
+  <a class="rail-link" href="#eventos" data-view="eventos" aria-label="Eventos de monitoramento"><span aria-hidden="true">≡</span><small>EVENTOS</small></a>
+  <a class="rail-link" href="#config" data-view="ajustes" aria-label="Configurações de varredura"><span aria-hidden="true">⚙</span><small>AJUSTES</small></a>
   <div class="rail-bottom">FSA<br>BA</div>
  </nav>
  <main class="main" id="overview">
-  <section class="page-heading">
+  <section class="page-heading" data-mview="geral">
    <div class="page-title"><div class="section-kicker"><span class="kicker-line"></span> PAINEL DE OPERAÇÕES <span class="separator">/</span> FEIRA DE SANTANA</div><h1>Visão geral da operação</h1><p>Monitoramento das posições publicadas pelo SIU, histórico local e descoberta de itinerários.</p></div>
    <div class="heading-actions"><a class="btn btn-ghost" href="/passageiro.html">📱 App Passageiro</a>
     <div class="source-pill"><span class="source-dot"></span><span id="sourceState">Fonte SIU • aguardando consulta</span></div>
@@ -42,8 +42,8 @@
     <button id="stop" class="btn btn-danger" disabled>■ Interromper</button>
    </div>
   </section>
-  <div class="notice" id="notice" role="status" aria-live="polite">Dados de demonstração até a primeira consulta. A varredura deve ser iniciada manualmente.</div>
-  <section class="kpis" aria-label="Indicadores de monitoramento">
+  <div class="notice" id="notice" data-mview="geral" role="status" aria-live="polite">Dados de demonstração até a primeira consulta. A varredura deve ser iniciada manualmente.</div>
+  <section class="kpis" data-mview="geral" aria-label="Indicadores de monitoramento">
    <article class="kpi kpi-primary"><div class="kpi-head"><span>VEÍCULOS CONHECIDOS</span><span class="kpi-glyph">▥</span></div><div class="kpi-number" id="totalCars">3</div><p id="freshCars">Exemplos fictícios</p><span class="kpi-accent"></span></article>
    <article class="kpi"><div class="kpi-head"><span>CONSULTADOS RECENTEMENTE</span><span class="kpi-glyph blue">◉</span></div><div class="kpi-number" id="recentCount">—</div><p>Consultas nesta sessão, até 5 min</p></article>
    <article class="kpi"><div class="kpi-head"><span>HISTÓRICOS / ANTIGOS</span><span class="kpi-glyph amber">◷</span></div><div class="kpi-number" id="oldCount">—</div><p>Posição não confirmada recentemente</p></article>
@@ -53,7 +53,7 @@
   </section>
   <div class="ops-grid">
    <div class="ops-main">
-    <section class="panel map-panel" id="mapa" aria-label="Mapa operacional">
+    <section class="panel map-panel" id="mapa" data-mview="mapa" aria-label="Mapa operacional">
      <div class="panel-heading map-heading">
       <div><div class="panel-eyebrow"><span class="live-indicator"></span> GEOLOCALIZAÇÃO <span class="divider-slash">/</span> SIU MOBILE</div><h2>Mapa operacional</h2><small id="mapInfo">Veículos fictícios — demonstração</small></div>
       <div class="map-actions">
@@ -65,15 +65,21 @@
      <div class="map-wrap"><div id="map"></div><div class="map-corner">FSA / CENTRAL DE OPERAÇÕES <span>●</span> <span id="mapMode">SIMULAÇÃO</span></div></div>
      <div class="map-bottom"><div class="legend-group"><span><i class="dot recent"></i> Consultado há até 5 min</span><span><i class="dot old"></i> Histórico / desatualizado</span><span><i class="dot demo"></i> Demonstração</span></div><span class="map-note">Horário de consulta ≠ horário da medição GPS</span></div>
     </section>
-    <section class="panel activity-panel" id="eventos">
+    <section class="panel activity-panel" id="eventos" data-mview="eventos">
      <div class="panel-heading"><div><div class="panel-eyebrow">MONITORAMENTO DA SESSÃO</div><h2>Eventos e diagnóstico</h2></div><span class="panel-tag">NÃO SÃO OCORRÊNCIAS DE TRÂNSITO</span></div>
      <div class="activity-body"><div class="activity-events" id="eventList"><p class="muted">Nenhum evento registrado.</p></div><div class="session-stats"><div><span>FALHAS DE CONSULTA</span><strong id="errorCount">0</strong></div><div><span>FASE ATUAL</span><strong id="phaseLabel">Aguardando</strong></div><div><span>ÚLTIMO CHECKPOINT</span><strong id="checkpointTime">—</strong></div></div></div>
     </section>
    </div>
-   <aside class="ops-side" id="frota">
+   <aside class="ops-side" id="frota" data-mview="frota">
     <section class="panel fleet-panel">
      <div class="panel-heading fleet-heading"><div><div class="panel-eyebrow">MONITORAMENTO DE FROTA</div><h2>Veículos <span class="fleet-count" id="listCount">3</span></h2></div><span class="panel-tag">SIU / GPS</span></div>
      <div class="fleet-search">
+      <div class="line-watch">
+       <label for="lineWatch">GPS por linha</label>
+       <div class="direct-row"><input id="lineWatch" type="search" placeholder="Ex.: 07A, 007, 300" autocomplete="off" autocapitalize="characters" spellcheck="false"><button id="lineWatchGo" class="btn btn-primary" type="button">Buscar GPS</button></div>
+       <div id="lineWatchChips" class="watch-chips" hidden></div>
+       <p id="lineWatchState" class="hint" role="status" aria-live="polite">Separe por vírgula ou espaço, até 8 linhas. O mapa, a lista e o GPS automático passam a mostrar só essas linhas.</p>
+      </div>
       <label for="busSearch">Buscar na frota conhecida</label>
       <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="busSearch" type="search" placeholder="Nº do carro, linha ou itinerário" autocomplete="off"></div>
       <div class="filter-row">
@@ -95,7 +101,7 @@
     </section>
    </aside>
   </div>
-  <section class="panel settings-panel" id="config" aria-label="Controle e configurações da varredura">
+  <section class="panel settings-panel" id="config" data-mview="ajustes" aria-label="Controle e configurações da varredura">
    <div class="panel-heading"><div><div class="panel-eyebrow">FERRAMENTAS DA CENTRAL</div><h2>Controle de coleta e memória</h2></div><span class="panel-tag">DADOS LOCAIS</span></div>
    <div class="settings-body">
     <label class="check-option"><input id="wide" type="checkbox" checked><span><strong>Varredura ampliada</strong><small>Inclui paradas adicionais e sublinhas</small></span></label>
@@ -111,7 +117,7 @@
     <div class="memoryInfo cloud-memory"><span>MEMÓRIA COMPARTILHADA • D1</span><strong id="d1State">Verificando...</strong><button type="button" id="sharedRefresh" class="btn btn-ghost">↻ Sincronizar histórico</button></div>
    </div>
   </section>
-  <p class="disclaimer">Painel independente de observação de dados do SIU Mobile. Não é uma central oficial nem apresenta ocorrências operacionais verificadas. Os totais refletem apenas os veículos e itinerários encontrados nas consultas disponíveis, não a frota integral. Localização armazenada é histórica; a data exibida é a da consulta e não comprova atualização do GPS do veículo. O checkpoint da varredura permanece neste navegador; os registros públicos de linhas, itinerários e última posição de veículos são compartilhados pela Cloudflare D1 quando disponível. A varredura não funciona com a página fechada. Exportações geográficas permanecem em escala real, para conversão posterior ao OMSI 1:2.</p>
+  <p class="disclaimer" data-mview="ajustes">Painel independente de observação de dados do SIU Mobile. Não é uma central oficial nem apresenta ocorrências operacionais verificadas. Os totais refletem apenas os veículos e itinerários encontrados nas consultas disponíveis, não a frota integral. Localização armazenada é histórica; a data exibida é a da consulta e não comprova atualização do GPS do veículo. O checkpoint da varredura permanece neste navegador; os registros públicos de linhas, itinerários e última posição de veículos são compartilhados pela Cloudflare D1 quando disponível. A varredura não funciona com a página fechada. Exportações geográficas permanecem em escala real, para conversão posterior ao OMSI 1:2.</p>
  </main>
 </div>
 <footer class="footer"><span>FEIRABUS / CCO · PROTÓTIPO INDEPENDENTE</span><span>Dados cartográficos: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Tema escuro local / OSM</span></footer>
