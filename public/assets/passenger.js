@@ -267,6 +267,7 @@ async function loadStops(){
    void getStop();
   }
   state.pendingStop=null;
+  state.coordsReady=enrichLineCoords(token);
  }catch(e){
   if(token!==state.stopsRequest)return;
   id("stopList").replaceChildren(make("li","empty","Falha ao consultar pontos: "+e.message));
@@ -352,6 +353,7 @@ async function toggleStop(stop,row,panel){
   const count=renderPredictions(results,d.previsoes);
   panel.replaceChildren(results,stopTools(stopId));
   void attachStopNotices(panel,stopId,()=>state.openStop===token);
+  void attachStopLines(panel,stopId);
   setShareHash(stopId);
   feedback(count?"Previsões de "+(stop.nome||"ponto "+stopId)+" consultadas no SIU.":"O SIU não informou previsão para "+(stop.nome||"ponto "+stopId)+" agora.");
  }catch(e){
@@ -395,7 +397,7 @@ function stopTools(stop){
  const share=make("button","button button-outline button-small","↗ Compartilhar");
  share.type="button";
  share.addEventListener("click",()=>void shareStop(stop,line));
- box.append(save,share);
+ box.append(save,share,alarmButton({stop,line,name:stopInfo?.nome||"Ponto "+stop},box));
  return box;
 }
 function shareUrl(stop,line){
@@ -446,7 +448,7 @@ function renderFavorites(){
   const go=make("button","button button-main button-small","Previsão");go.type="button";
   const del=make("button","button button-outline button-small","✕");del.type="button";
   del.setAttribute("aria-label","Remover "+f.name);
-  actions.append(go,del);head.append(title,actions);
+  actions.append(go,alarmButton({stop:f.stop,line:f.line||"",name:f.name},null,true),del);head.append(title,actions);
   const out=make("div","fav-out");out.hidden=true;
   go.addEventListener("click",async()=>{
    out.hidden=false;go.disabled=true;
@@ -505,7 +507,7 @@ function nearbyCard(st){
  const go=make("button","button button-main button-small","Previsão");go.type="button";
  const save=make("button","button button-outline button-small",favorites().some(f=>f.stop===st.id&&!f.line)?"★":"☆");save.type="button";
  save.setAttribute("aria-label","Salvar "+(st.nome||"ponto "+st.id)+" em Meus pontos");
- actions.append(go,save);head.append(title,actions);
+ actions.append(go,alarmButton({stop:st.id,line:"",name:st.nome||"Ponto "+st.id},null,true),save);head.append(title,actions);
  const out=make("div","fav-out");out.hidden=true;
  go.addEventListener("click",async()=>{
   out.hidden=false;go.disabled=true;
@@ -514,6 +516,7 @@ function nearbyCard(st){
    const d=await api("/api/predictions?stop="+encodeURIComponent(st.id));
    renderPredictions(out,d.previsoes,"");
    void attachStopNotices(out,st.id);
+   void attachStopLines(out,st.id);
   }catch(e){out.replaceChildren(make("div","empty",e.message));}
   finally{go.disabled=false;go.textContent="↻ Atualizar";}
  });
@@ -537,6 +540,19 @@ function nearbyStops(){
    list.replaceChildren();
    const stops=(d.paradas||[]).filter(x=>/^\d{1,15}$/.test(String(x.id))).slice(0,12);
    for(const st of stops)list.append(nearbyCard(st));
+   const sales=(d.postosVenda||[]).filter(x=>Number.isFinite(x.lat)).slice(0,6);
+   if(sales.length){
+    const box=make("div","sale-points");
+    box.append(make("small","notice-kicker","PONTOS DE VENDA E RECARGA PERTO"));
+    for(const pv of sales){
+     const a=make("a","sale-point");
+     a.href="https://www.openstreetmap.org/?mlat="+encodeURIComponent(pv.lat)+"&mlon="+encodeURIComponent(pv.lon)+"#map=18/"+encodeURIComponent(pv.lat)+"/"+encodeURIComponent(pv.lon);
+     a.target="_blank";a.rel="noopener noreferrer";
+     a.append(make("strong",null,pv.nome||"Ponto de venda"),make("small",null,"cerca de "+formatDistance(pv.distancia)+" · abrir no mapa ↗"));
+     box.append(a);
+    }
+    list.append(box);
+   }
    status.textContent=stops.length?stops.length+" paradas perto de você (distância em linha reta, posição aproximada).":"O SIU não encontrou paradas perto dessa posição.";
   }catch(e){status.textContent=/região/.test(e.message)?"Você parece estar fora da área atendida pelo SIU de Feira de Santana.":"Não foi possível consultar paradas próximas: "+e.message;}
   finally{b.disabled=false;}
@@ -545,13 +561,162 @@ function nearbyStops(){
   status.textContent=err.code===1?"Permissão de localização negada. Ative no navegador para usar esta função.":"Não foi possível obter sua localização agora.";
  },{enableHighAccuracy:false,timeout:15000,maximumAge:120000});
 }
+function formatDistance(m){return m<1000?Math.max(10,Math.round(m/10)*10)+" m":(m/1000).toFixed(1)+" km";}
+// 1) Coordenadas de todos os pontos da linha: a variante "ComCoordenadas" traz só parte deles;
+// as paradas dos itinerários da linha cobrem todos (linha 007: 76 de 76).
+async function enrichLineCoords(token){
+ const line=selectedLineNumber();
+ if(!state.origins.length||!line)return;
+ await pool(state.origins.slice(0,3).map(g=>g.stops[0]).filter(Boolean),PARALLEL,async first=>{
+  try{
+   const d=await api("/api/predictions?stop="+encodeURIComponent(first.id));
+   for(const row of d.previsoes||[])
+    if(plain(row.linha)===line&&validCode(String(row.itinerario??"")))state.lineRoutes.add(String(row.itinerario));
+  }catch{}
+ });
+ if(token!==state.stopsRequest)return;
+ const byId=new Map(allStops().map(x=>[x.id,x]));
+ await pool([...state.lineRoutes].slice(0,8),PARALLEL,async route=>{
+  try{
+   const d=await api("/api/route-stops?itinerary="+encodeURIComponent(route));
+   for(const p of d.paradas||[]){
+    const st=byId.get(String(p.id));
+    if(st&&!Number.isFinite(st.lat)&&Number.isFinite(p.lat)&&Number.isFinite(p.lon)){st.lat=p.lat;st.lon=p.lon;}
+   }
+  }catch{}
+ });
+ if(token!==state.stopsRequest)return;
+ id("nearestStop").hidden=!allStops().some(x=>Number.isFinite(x.lat));
+}
+// 5) Todas as linhas cadastradas no ponto; tocar abre a linha em 01/02.
+async function attachStopLines(container,stopId){
+ try{
+  const d=await api("/api/stops/lines?stop="+encodeURIComponent(stopId));
+  const linhas=(d.linhas||[]).filter(l=>l&&l.id);
+  if(!linhas.length||!container.isConnected)return;
+  const box=make("div","stop-lines");
+  box.append(make("small","notice-kicker","LINHAS NESTE PONTO"));
+  const chips=make("div","stop-lines-chips");
+  for(const l of linhas.slice(0,40)){
+   const chip=make("button","line-chip",l.numero||l.id);chip.type="button";chip.title=l.nome||"";
+   chip.addEventListener("click",()=>{
+    if(!state.lines.some(x=>String(x.id)===String(l.id))){feedback("A linha "+(l.numero||l.id)+" não está no catálogo carregado.",true);return;}
+    id("lineFilter").value="";renderLineChoices();
+    id("lineSelect").value=String(l.id);
+    document.getElementById("paradas").scrollIntoView({behavior:"smooth",block:"start"});
+    void selectLine();
+   });
+   chips.append(chip);
+  }
+  box.append(chips);
+  container.append(box);
+ }catch{}
+}
+// 3) Alarme "meu ônibus está chegando": só no aparelho, nada é enviado ao SIU.
+// Confere a previsão a cada 30 s enquanto o app estiver aberto (em segundo plano o navegador pode espaçar).
+const ALARM_KEY="feirabus-alarms",ALARM_MAX=5,ALARM_TTL=90*60*1000;
+const alarms=[];let alarmTimer=null;
+function etaMinutes(text){
+ const t=plain(text);
+ if(/CHEGANDO|AGORA|APROXIMANDO/.test(t))return 0;
+ const m=t.match(/(\d+)\s*MIN/);if(m)return Number(m[1]);
+ const h=t.match(/(\d{1,2}):(\d{2})/);
+ if(h){const now=liveClock();const at=Number(h[1])*60+Number(h[2]);if(now!==null&&at>=now)return at-now;}
+ return null;
+}
+function saveAlarms(){store(ALARM_KEY,alarms.map(({stop,line,name,minutes,createdAt})=>({stop,line,name,minutes,createdAt})));}
+function renderAlarms(){
+ const box=id("alarmList");box.replaceChildren();box.hidden=!alarms.length;
+ if(!alarms.length)return;
+ box.append(make("small","notice-kicker","🔔 ALARMES ATIVOS · conferidos a cada 30 s com o app aberto"));
+ for(const a of alarms){
+  const row=make("div","alarm");
+  row.append(make("span",null,(a.line?"Linha "+a.line+" · ":"")+a.name+" · avisa a "+a.minutes+" min"+(a.last?" · agora: "+a.last:"")));
+  const x=make("button","button button-outline button-small","✕");x.type="button";x.setAttribute("aria-label","Cancelar alarme");
+  x.addEventListener("click",()=>{alarms.splice(alarms.indexOf(a),1);saveAlarms();renderAlarms();if(!alarms.length)stopAlarmTimer();});
+  row.append(x);box.append(row);
+ }
+}
+function stopAlarmTimer(){if(alarmTimer){clearInterval(alarmTimer);alarmTimer=null;}}
+function startAlarmTimer(){if(!alarmTimer&&alarms.length)alarmTimer=setInterval(()=>void checkAlarms(),30000);}
+function addAlarm(a){
+ if(alarms.some(x=>x.stop===a.stop&&x.line===a.line)){feedback("Já existe alarme para esse ponto e linha.");return false;}
+ if(alarms.length>=ALARM_MAX){feedback("Limite de "+ALARM_MAX+" alarmes ativos.",true);return false;}
+ alarms.push({...a,createdAt:Date.now()});saveAlarms();renderAlarms();startAlarmTimer();
+ if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().catch(()=>{});
+ void checkAlarms();
+ return true;
+}
+function restoreAlarms(){
+ const saved=load(ALARM_KEY);
+ for(const a of Array.isArray(saved)?saved:[])
+  if(a&&/^\d{1,15}$/.test(String(a.stop))&&Date.now()-Number(a.createdAt)<ALARM_TTL&&[3,5,10].includes(Number(a.minutes)))
+   alarms.push({stop:String(a.stop),line:String(a.line||""),name:String(a.name||"Ponto "+a.stop).slice(0,40),minutes:Number(a.minutes),createdAt:Number(a.createdAt)});
+ renderAlarms();startAlarmTimer();
+ if(alarms.length)void checkAlarms();
+}
+function ring(a,text){
+ const msg=(a.line?"Linha "+a.line:"Ônibus")+" chegando em "+a.name+": "+text;
+ feedback("🔔 "+msg);
+ try{navigator.vibrate?.([300,150,300,150,300]);}catch{}
+ try{
+  const ctx=new (window.AudioContext||window.webkitAudioContext)(),o=ctx.createOscillator(),g=ctx.createGain();
+  o.frequency.value=880;o.connect(g);g.connect(ctx.destination);g.gain.value=.15;o.start();o.stop(ctx.currentTime+.6);
+ }catch{}
+ try{if("Notification" in window&&Notification.permission==="granted")new Notification("FeiraBus",{body:msg,tag:"feirabus-"+a.stop+"-"+a.line});}catch{}
+}
+let alarmBusy=false;
+async function checkAlarms(){
+ if(alarmBusy||!alarms.length)return;
+ alarmBusy=true;
+ try{
+  await pool([...alarms],PARALLEL,async a=>{
+   if(Date.now()-a.createdAt>ALARM_TTL){alarms.splice(alarms.indexOf(a),1);return;}
+   try{
+    const d=await api("/api/predictions?stop="+encodeURIComponent(a.stop));
+    const rows=(d.previsoes||[]).filter(r=>r.linha&&(!a.line||plain(r.linha)===plain(a.line)));
+    let best=null;
+    for(const r of rows){const m=etaMinutes(r.previsao);if(m!==null&&(best===null||m<best.m))best={m,text:r.previsao};}
+    a.last=best?best.text:"sem previsão";
+    if(best&&best.m<=a.minutes){ring(a,best.text);alarms.splice(alarms.indexOf(a),1);}
+   }catch{a.last="falha na consulta";}
+  });
+ }finally{
+  alarmBusy=false;saveAlarms();renderAlarms();
+  if(!alarms.length)stopAlarmTimer();
+ }
+}
+function alarmButton(target,container,compact=false){
+ const b=make("button","button button-outline button-small",compact?"🔔":"🔔 Avisar");b.type="button";
+ b.setAttribute("aria-label","Avisar quando o ônibus estiver chegando em "+target.name);
+ b.addEventListener("click",()=>{
+  const host=container||b.closest(".fav")||b.parentElement;
+  if(host.querySelector(".alarm-form"))return;
+  const form=make("div","alarm-form");
+  form.append(make("span",null,"Avisar quando faltar:"));
+  for(const m of [3,5,10]){
+   const opt=make("button","button button-small "+(m===5?"button-main":"button-outline"),m+" min");opt.type="button";
+   opt.addEventListener("click",()=>{
+    if(addAlarm({stop:target.stop,line:target.line||"",name:String(target.name||"Ponto "+target.stop).slice(0,40),minutes:m}))
+     feedback("Alarme criado: aviso quando faltar "+m+" min"+(target.line?" para a linha "+target.line:"")+". Mantenha o app aberto.");
+    form.remove();
+   });
+   form.append(opt);
+  }
+  host.append(form);
+ });
+ return b;
+}
 function distance(a,b){
  const r=6371000,rad=x=>x*Math.PI/180;
  const dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon);
  const h=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
  return 2*r*Math.asin(Math.sqrt(h));
 }
-function nearestStop(){
+async function nearestStop(){
+ // Espera completar as coordenadas pelos itinerários: sem isso, um toque rápido
+ // calcularia com poucos pontos e indicaria uma parada distante.
+ if(state.coordsReady){feedback("Completando as coordenadas dos pontos da linha…");await state.coordsReady.catch(()=>{});}
  const stops=allStops().filter(x=>Number.isFinite(x.lat));
  if(!stops.length||!navigator.geolocation){feedback("Este navegador ou esta linha não tem coordenadas para calcular o ponto mais perto.",true);return;}
  const b=id("nearestStop");b.disabled=true;feedback("Pedindo sua localização ao navegador…");
@@ -909,6 +1074,7 @@ window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change"
 paintThemeButton();
 renderFavorites();
 void loadNotices();
+restoreAlarms();
 for(const [input,run] of [["stopCode",getStop],["vehicleCode",getVehicle]]){
  id(input).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();run();}});
 }

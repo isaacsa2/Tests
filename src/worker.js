@@ -233,7 +233,7 @@ async function cachedSharedRead(key,seconds,loader,ctx){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-fast-batches-v11",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","stops-nearby","route-stops","notices","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-alarms-lines-v12",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","stops-nearby","stop-lines","route-stops","notices","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
     try{
@@ -330,10 +330,23 @@ async function action(url,env,ctx){
     const lat=Math.round(value(q.get("lat"))*1000)/1000,lon=Math.round(value(q.get("lon"))*1000)/1000;
     if(!local(lat,lon))throw bad("Localização fora da região atendida",400);
     const d=await upstream("V3/buscarParadasProximas/"+lon+"/"+lat+"/0/"+city+"/retornoJSONH","retornoJSONH",300,ctx);
+    const near=x=>({...x,distancia:distanceMeters({lat,lon},x)});
     const paradas=success(d)?array(d.paradas).filter(x=>x?.cod!=null&&x.cod!=="Sem Dados").map(stop)
-      .filter(x=>Number.isFinite(x.lat)).map(x=>({...x,distancia:distanceMeters({lat,lon},x)}))
-      .sort((a,b)=>a.distancia-b.distancia).slice(0,20):[];
-    return {paradas,origem:{lat,lon},precisao:"aprox. 100 m"};
+      .filter(x=>Number.isFinite(x.lat)).map(near).sort((a,b)=>a.distancia-b.distancia).slice(0,20):[];
+    // A mesma resposta traz os pontos de venda/recarga do cartão (APK: cod, desc, x, y).
+    const postosVenda=success(d)?array(d.postosVenda).filter(x=>x?.cod!=null&&x.cod!=="Sem Dados").map(stop)
+      .filter(x=>Number.isFinite(x.lat)).map(({id,nome,lat,lon})=>near({id,nome,lat,lon}))
+      .sort((a,b)=>a.distancia-b.distancia).slice(0,10):[];
+    return {paradas,postosVenda,origem:{lat,lon},precisao:"aprox. 100 m"};
+  }
+  if(p==="/api/stops/lines"){
+    // Todas as linhas cadastradas no ponto, não só as que têm previsão agora.
+    const n=ident(q.get("stop"));
+    const d=await upstream("retornaLinhasQueAtendemParada/"+n+"/0/retornoJSON","retornoJSON",21600,ctx);
+    const linhas=success(d)?array(d.linhas).filter(x=>x?.cod_linha!=null&&x.cod!=="Sem Dados").slice(0,80).map(x=>({
+      id:String(x.cod_linha).slice(0,32),numero:String(x.num_linha??"").trim().slice(0,20),nome:String(x.descricao??"").trim().slice(0,140)
+    })):[];
+    return {parada:n,linhas};
   }
   if(p==="/api/route-stops"){
     const n=ident(q.get("itinerary"));
@@ -355,9 +368,11 @@ async function action(url,env,ctx){
       nearby:()=>["V3/buscarParadasProximas/"+(Math.round(value(q.get("lon")??-38.966)*1000)/1000)+"/"+(Math.round(value(q.get("lat")??-12.266)*1000)/1000)+"/0/"+city+"/retornoJSONH","retornoJSONH","paradas"],
       routeStops:()=>["buscarParadasPorItiComCoordenadas/"+ident(q.get("itinerary"))+"/0/retornoJSONPontosItinerario","retornoJSONPontosItinerario","paradas"],
       notices:()=>["V3/buscarNotificacao/"+city+"/retornoVerificaNotificacoes","retornoVerificaNotificacoes","notificacao"],
-      stopNotices:()=>["V3/verificaNotificacaoParada/"+ident(q.get("stop"))+"/"+city+"/retornaJSONNotificacoesParada","retornaJSONNotificacoesParada","notificacaoParada"]
+      stopNotices:()=>["V3/verificaNotificacaoParada/"+ident(q.get("stop"))+"/"+city+"/retornaJSONNotificacoesParada","retornaJSONNotificacoesParada","notificacaoParada"],
+      salePoints:()=>["V3/buscarParadasProximas/"+(Math.round(value(q.get("lon")??-38.966)*1000)/1000)+"/"+(Math.round(value(q.get("lat")??-12.266)*1000)/1000)+"/0/"+city+"/retornoJSONH","retornoJSONH","postosVenda"],
+      stopLines:()=>["retornaLinhasQueAtendemParada/"+ident(q.get("stop"))+"/0/retornoJSON","retornoJSON","linhas"]
     };
-    if(!Object.hasOwn(routes,kind))throw bad("kind deve ser nearby, routeStops, notices ou stopNotices",400);
+    if(!Object.hasOwn(routes,kind))throw bad("kind deve ser nearby, routeStops, notices, stopNotices, salePoints ou stopLines",400);
     const [route,cb,field]=routes[kind]();
     const d=await upstream(route,cb,300,ctx),rows=array(d?.[field]);
     const first=rows[0]&&typeof rows[0]==="object"?rows[0]:{};

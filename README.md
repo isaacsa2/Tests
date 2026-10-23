@@ -271,3 +271,11 @@ Rotas reproduzidas do app SIU Mobile 1.29.2, **somente leitura** de dados públi
 - **CCO:** sem a espera de 1,6 s por consulta; no máximo **6 consultas simultâneas** por navegador. GPS automático em rodadas de **20 / 30 / 40 itinerários** (intervalos de 15 / 30 / 60 s), e “GPS por linha” consulta os itinerários em paralelo.
 - **Passageiro:** “Sincronizar linha toda” em **lotes de 30 pontos, 6 por vez**; o mapa da linha carrega trajetos e ônibus em paralelo. Medido com dados reais: linha 007 (76 pontos) de 97 s para **17 s**, ainda com o Worker anterior publicado.
 - O SIU nunca recebe mais que 6 consultas simultâneas de um mesmo aparelho; disparar 30–40 de uma vez poderia bloquear o Worker para todos.
+
+## Coordenadas da linha toda, pontos de venda, alarmes e linhas do ponto
+
+- **Coordenadas de todos os pontos da linha:** a variante `ComCoordenadas` traz só parte das paradas (linha 007: 19 de 76). O app completa com as paradas dos itinerários da linha (`/api/route-stops`), que cobrem todas (007: 76 de 76). “Mais perto nesta linha” espera essa etapa terminar antes de calcular. Conferido com dados reais: parada a ~70 m da posição de teste.
+- **Pontos de venda e recarga** (`postosVenda`, mesma resposta de `buscarParadasProximas`, campos `cod`, `desc`, `x`, `y`): aparecem em “Paradas perto de mim”, com distância e link para o mapa.
+- **Alarme “meu ônibus está chegando”:** em um ponto aberto, em Meus pontos ou em Paradas perto de mim, escolha 3, 5 ou 10 min. O app confere a previsão a cada 30 s e avisa com notificação, vibração e som. Fica só no aparelho (até 5 alarmes, 90 min cada); nada é enviado ao SIU. Funciona com o app aberto; em segundo plano o navegador pode espaçar as conferências.
+- **Linhas neste ponto** (`/api/stops/lines` → `retornaLinhasQueAtendemParada`, campos `cod_linha`, `num_linha`, `descricao`): todas as linhas cadastradas no ponto; tocar numa linha abre a linha em 01/02.
+- `/api/diagnostics/siu` aceita também `salePoints` e `stopLines`.
