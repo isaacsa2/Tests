@@ -3,13 +3,14 @@ import worker from "./src/worker.js";
 const cache=new Map();
 globalThis.caches={default:{async match(r){return cache.get(r.url)?.clone()??null;},async put(r,v){cache.set(r.url,v.clone());}}};
 const requests=[];
+let lineMode=0;
 globalThis.fetch=async function(url){
  const u=String(url);requests.push(u);
  const q=new URL(u).searchParams;
  assert.match(q.get("callback")||"",/^jQuery[0-9]+_[0-9]+$/);
  assert.ok(/^\d+$/.test(q.get("_")||""));
  let cb=q.get("callback"),d={sucesso:true};
- if(u.includes("/buscarLinhas/")){d.linhas='{"cod":"12","sgl":"001","nom":"Centro"},{"cod":"13","sgl":"002","nom":"Tomba"}';}
+ if(u.includes("/buscarLinhas/")){d.linhas=lineMode===0?['{"cod":"12","sgl":"001","nom":"Centro"},{"cod":"13","sgl":"002","nom":"Tomba"}']:lineMode===1?'{"cod":"12","sgl":"001","nom":"Centro"},{"cod":"13","sgl":"002","nom":"Tomba"}':[];}
  else if(u.includes("/buscarParametrosIniciais/")){d.parametrosIniciais=[];}
  else if(u.includes("/retornaSublinhasDaLinha/")){d.subLinhas=[{cod:"120",sgl:"001A",nom:"Variante"}];}
  else if(u.includes("/buscarParadasPorLinha/")){d.paradas=[{cod:"315",sent:"Centro"}];}
@@ -31,7 +32,17 @@ assert.equal((await get("/api/status"))[0],200);
 let [initStatus,initData]=await get("/api/initialize");
 assert.equal(initStatus,200);assert.equal(initData.inicializacao,"confirmada");
 let [status,data]=await get("/api/lines");assert.equal(status,200);assert.equal(data.linhas[0].numero,"001");assert.equal(data.linhas[1].numero,"002");
+let [ds,diagnostic]=await get("/api/diagnostics/lines");
+assert.equal(ds,200);assert.equal(diagnostic.diagnostico.linhasValidas,2);
+assert.equal(diagnostic.diagnostico.tipoLinhas,"array");
 await get("/api/lines");assert.equal(requests.filter(s=>s.includes("/buscarLinhas/")).length,1);
+lineMode=1;cache.clear();
+[,data]=await get("/api/lines");assert.equal(data.linhas.length,2);
+lineMode=2;cache.clear();
+[,data]=await get("/api/lines");assert.equal(data.linhas.length,0);
+assert.equal(data.diagnostico.elementosBrutos,0);
+assert.equal(data.diagnostico.linhasValidas,0);
+lineMode=0;cache.clear();
 [,data]=await get("/api/sublines?line=12");assert.equal(data.sublinhas[0].id,"120");
 [,data]=await get("/api/stops?line=12");assert.equal(data.paradas[0].id,"315");
 assert.ok(requests.some(x=>x.includes("V3/buscarParadasPorLinha/12/0/null/retornoJSON")));

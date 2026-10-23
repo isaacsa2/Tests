@@ -9,21 +9,21 @@ A mensagem "This uploader does not yet support projects that require a build pro
 **Para aproveitar o seu endereço atual sem recriar outro projeto:**
 
 1. Entre em https://dash.cloudflare.com/ e abra Workers & Pages.
-2. Selecione o Worker EXISTENTE chamado feiradesantana.
+2. Selecione o Worker EXISTENTE chamado tests.
 3. Acesse Settings > Builds > Connect (ou Git repository / Connect to Git conforme a interface).
 4. Escolha GitHub e selecione isaacsa2/Tests.
 5. Branch de produção: main. Root directory: / (raiz).
 6. Build command: npm test. Deploy command: npx wrangler deploy.
 7. Salve a integração e acione um deploy da branch main se necessário (na interface da Cloudflare ou enviando um novo commit).
 
-IMPORTANTE: o nome no arquivo wrangler.jsonc já é feiradesantana, que deve corresponder ao Worker existente. Conectar a outro Worker com nome diferente vai falhar. Faça backup da configuração anterior; uma implantação altera o serviço online.
+IMPORTANTE: o nome no arquivo wrangler.jsonc já é tests, que deve corresponder ao Worker existente. Conectar a outro Worker com nome diferente vai falhar. Faça backup da configuração anterior; uma implantação altera o serviço online.
 
 URL esperada do seu Worker já existente:
-https://feiradesantana.isaacsa2-santana.workers.dev/
+https://tests.isaacsa2-santana.workers.dev/
 
 Testes após implantar:
-- https://feiradesantana.isaacsa2-santana.workers.dev/api/status
-- https://feiradesantana.isaacsa2-santana.workers.dev/api/lines
+- https://tests.isaacsa2-santana.workers.dev/api/status
+- https://tests.isaacsa2-santana.workers.dev/api/lines
 
 /api/status apenas confirma que o código entrou no ar; NÃO confirma a conexão com o SIU. /api/lines é o primeiro teste real de conectividade.
 
@@ -84,3 +84,14 @@ Ao verificar a implantação:
 4. Consulte a interface e procure um veículo pelo número apenas se o SIU responder.
 
 **Limite:** os testes CI simulam as respostas do SIU; eles não garantem conectividade do servidor real nem autorizam contornar bloqueios por IP, origem ou credenciais. Se o servidor não permitir requisições originadas da Cloudflare, é necessário alinhamento com o operador.
+
+## Worker atual: tests (23/10/2026)
+
+O usuário confirmou que o painel agora está em `https://tests.isaacsa2-santana.workers.dev/`. O `wrangler.jsonc` usa agora `name: "tests"`, que **precisa corresponder exatamente** ao projeto Worker no painel da Cloudflare.
+
+Se o painel avisar que o SIU retornou uma lista vazia, abra estes caminhos:
+- `/api/status` — versão `2026-10-23-line-parser-v2` confirma que a implantação já usou este commit.
+- `/api/diagnostics/lines` — apresenta somente tipos, contagens, chaves e até três linhas públicas de exemplo; nunca mostra o payload completo da API.
+- `/api/lines` — lista usada pelo dashboard.
+
+O parser agora aceita listas JSON aninhadas ou listas de strings que contêm sequências de objetos. O cache de linhas foi versionado e **não grava resultados vazios**, para evitar a falsa impressão de que a cidade não tem linhas. Se o diagnóstico informar `campoLinhasPresente: true` e `itensInterpretados: 0`, o serviço pode realmente estar retornando nada ou um formato que exige análise adicional; não inventar dados. `FSA_SIU_CITY = "null"` é coerente com o app FSA, que não exige seleção manual de cidade na instalação.
