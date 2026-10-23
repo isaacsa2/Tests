@@ -65,3 +65,17 @@ assert.ok(workerSource.includes('"retornoJSONVeiculos",12,ctx')&&workerSource.in
 assert.ok(app.includes('function hydrateSharedMemory()')&&app.includes('/api/memory/snapshot'),"CCO sem importação da memória D1");
 assert.ok(d1source.includes("ON CONFLICT(id)")&&d1source.includes("saveVehicles"),"D1 não registra últimas posições");
 assert.ok(fs.existsSync("migrations/0001_feirabus_memory.sql"),"Arquivo de migração D1 ausente");
+
+// Passageiro: paradas agrupadas por origem (sentido do SIU) e layout celular/PC.
+const passengerCss=fs.readFileSync("public/assets/passenger.css","utf8");
+const pIds=[...passenger.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
+assert.equal(new Set(pIds).size,pIds.length,"IDs duplicados no passageiro");
+for(const name of ["lineFilter","lineSelect","variantSelect","daySelect","refreshSchedule","times","scheduleCount","scheduleCaveat","originTabs","originInfo","stopList","stopsMeta","refreshStops","stopCode","checkStop","predictions","vehicleCode","checkVehicle","vehicleResult","feedback","connection","install"])
+ assert.ok(pIds.includes(name),"Campo do passageiro faltando: "+name);
+for(const name of [...passengerJS.matchAll(/\bid\("([^"]+)"\)/g)].map(m=>m[1]))
+ assert.ok(pIds.includes(name),"passenger.js usa id inexistente: "+name);
+assert.ok(passengerJS.includes("/api/stops?line=")&&passengerJS.includes("function groupStops(")&&passengerJS.includes("function selectOrigin("),"Paradas por origem ausentes");
+assert.ok(!passengerJS.includes("showSchedule("),"Regressão: função inexistente ao limpar a linha");
+assert.ok(passengerCss.includes("@media(min-width:1024px)")&&passengerCss.includes("@media(min-width:700px)"),"Layout PC/celular ausente");
+assert.ok(serviceWorker.includes('"feirabus-passenger-v2"'),"Cache do PWA precisa nova versão após mudar a interface");
+console.log("OK: passageiro com origens, pontos e layout responsivo.");
