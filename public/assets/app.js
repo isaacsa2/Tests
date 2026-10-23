@@ -30,7 +30,27 @@ function applyMapTheme(mode){
  el("mapTheme").value=dark?"dark":"streets";
  try{localStorage.setItem("feirabus-map-theme",dark?"dark":"streets");}catch{}
 }
-let initialMapTheme="dark";
+// Tema da página (compartilhado com o app do passageiro): segue o sistema até a escolha.
+function pageTheme(){
+ const t=document.documentElement.dataset.theme;
+ if(t==="light"||t==="dark")return t;
+ return window.matchMedia?.("(prefers-color-scheme: light)").matches?"light":"dark";
+}
+function paintThemeButton(){
+ const t=pageTheme();
+ el("themeToggle").textContent=t==="dark"?"☀":"☾";
+ el("themeToggle").setAttribute("aria-label",t==="dark"?"Usar tema claro":"Usar tema escuro");
+ document.querySelector('meta[name="theme-color"]')?.setAttribute("content",t==="dark"?"#12151c":"#f5f2ea");
+}
+el("themeToggle").addEventListener("click",()=>{
+ const next=pageTheme()==="dark"?"light":"dark";
+ document.documentElement.dataset.theme=next;
+ try{localStorage.setItem("feirabus-theme",next);}catch{}
+ applyMapTheme(next==="dark"?"dark":"streets");
+ paintThemeButton();
+});
+paintThemeButton();
+let initialMapTheme=pageTheme()==="dark"?"dark":"streets";
 try{const saved=localStorage.getItem("feirabus-map-theme");if(saved==="dark"||saved==="streets")initialMapTheme=saved;}catch{}
 applyMapTheme(initialMapTheme);
 function operationalClock(){
@@ -112,6 +132,14 @@ function vehicleView(v,demonstration=false){
  detail.innerHTML='<div class="detail-top"><div><div class="panel-eyebrow">IDENTIFICAÇÃO</div><div class="detail-id" id="detail-id"></div></div><span class="detail-flag" id="detail-flag"></span></div><div class="detail-grid"><div><span>LINHA INFORMADA</span><strong id="detail-line"></strong></div><div><span>ITINERÁRIO</span><strong id="detail-route"></strong></div><div><span>LATITUDE</span><strong id="detail-lat"></strong></div><div><span>LONGITUDE</span><strong id="detail-lon"></strong></div><div><span>DIREÇÃO INFORMADA</span><strong id="detail-direction"></strong></div><div><span>ÚLTIMA CONSULTA</span><strong id="detail-time"></strong></div></div><p class="detail-footnote">Posição retornada pelo serviço ou restaurada do armazenamento local. O instante da medição GPS pode ser diferente do horário da consulta.</p>';
  const fields={"detail-id":"CARRO "+v.id,"detail-line":v.linha||"Não informada","detail-route":v.itinerario||"Não informado","detail-lat":Number(v.lat).toFixed(5),"detail-lon":Number(v.lon).toFixed(5),"detail-direction":Number.isFinite(v.rumo)?v.rumo+"°":"Não informado","detail-time":demonstration?"Dados simulados":stamp(v.lastSeen)};
  for(const [id,text] of Object.entries(fields))el(id).textContent=text;
+ const recentLines=busHistory.byBus.get(String(v.id));
+ if(recentLines?.length){
+  const section=document.createElement("div");section.className="cco-fleet-links";
+  const title=document.createElement("span");title.textContent="LINHAS RECENTES · D1 (7 DIAS)";
+  const list=document.createElement("small");
+  list.textContent=recentLines.slice(0,8).map(l=>l.linha+" ("+shortTime(l.ultimaVez)+")").join(" · ");
+  section.append(title,list);detail.append(section);
+ }
  const fleet=globalThis.FeiraBusFleet?.lookup(v.id);
  if(fleet?.links?.length){
   const section=document.createElement("div");section.className="cco-fleet-links";
@@ -632,6 +660,7 @@ function setWatch(lines){
  else if(had)tag(s.mode==="demo"?"MODO DEMONSTRAÇÃO":"FROTA CONHECIDA · SEM FILTRO DE LINHAS");
  paint();
  if(s.poll)scheduleGpsNext();
+ void drawRouteLines();
 }
 // Itinerários de uma linha: previsões do primeiro ponto de cada sentido,
 // o mesmo caminho da varredura, mas só para as linhas pedidas.
@@ -685,7 +714,7 @@ async function searchLines(){
    try{await getVehicles(route,false);ok++;}catch(e){eventLog("Falha de GPS no itinerário "+route+": "+e.message,"warn");}
   }
   if(ok){s.mode="live";tag("GPS · LINHAS "+wanted.join(", "));}
-  paint();fit();
+  paint();fit();void drawRouteLines();
   const recent=[...s.buses.values()].filter(v=>isWatched(v)&&isRecent(v)).length;
   const parts=[];
   parts.push(routes.length?recent+(recent===1?" carro consultado agora":" carros consultados agora")+" em "+ok+"/"+routes.length+" itinerários.":
@@ -702,11 +731,82 @@ async function searchLines(){
   if(el("poll").checked)startGpsPolling();
  }
 }
+// Trajeto das linhas filtradas (GPS por linha ou seletor de linha), com geometria em cache.
+let drawnRoutesKey="";
+async function drawRouteLines(){
+ const chosen=el("fleetLine").value;
+ const lines=watch.lines.length?watch.lines:chosen?[GPS.normalizeLine(chosen)]:[];
+ const routes=[...s.routeLines].filter(([,line])=>lines.includes(line)).map(([route])=>route).slice(0,12);
+ const key=routes.join(",");
+ if(key===drawnRoutesKey)return;
+ drawnRoutesKey=key;linesLayer.clearLayers();
+ if(!routes.length)return;
+ const colors=["#f2c230","#7aa7ef","#6fd39a","#ff8a7a","#c79bff","#f5f2ea"];
+ for(const route of routes){
+  let d=s.geometry.get(route);
+  if(!d&&memoryAvailable){try{d=await memory.loadGeometry(route);if(d)s.geometry.set(route,d);}catch{}}
+  if(!d){
+   try{d=await api("/api/geometry?itinerary="+encodeURIComponent(route));s.geometry.set(route,d);if(memoryAvailable)await memory.saveGeometry(route,d);}
+   catch(e){eventLog("Trajeto do itinerário "+route+" indisponível: "+e.message,"warn");continue;}
+  }
+  if(drawnRoutesKey!==key)return;
+  const pts=(d.geometry?.coordinates||[]).map(([lon,lat])=>[lat,lon]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
+  const line=s.routeLines.get(route)||"";
+  if(pts.length>1)L.polyline(pts,{color:colors[Math.max(0,lines.indexOf(line))%colors.length],weight:4,opacity:.8})
+   .bindTooltip("Linha "+line+" · itinerário "+route).addTo(linesLayer);
+ }
+ linesLayer.eachLayer(l=>l.bringToBack?.());
+}
+// Linhas recentes de cada carro (D1, 7 dias). O CCO mantém carros antigos; só o app os esconde.
+const busHistory={rows:[],byBus:new Map(),loadedAt:0,busy:false};
+async function loadHistory(force=false){
+ if(busHistory.busy||(!force&&Date.now()-history.loadedAt<120000))return;
+ busHistory.busy=true;el("historyRefresh").disabled=true;
+ el("historyState").textContent="Consultando a memória compartilhada…";
+ try{
+  const d=await api("/api/memory/vehicle-lines",true);
+  busHistory.rows=(d.veiculos||[]).filter(v=>v&&ROUTE_ID.test(String(v.id))&&Array.isArray(v.linhas));
+  busHistory.byBus=new Map(busHistory.rows.map(v=>[String(v.id),v.linhas]));
+  busHistory.loadedAt=Date.now();
+  renderHistory();
+  if(selectedVehicleId)paint();
+ }catch(e){el("historyState").textContent="Histórico indisponível: "+e.message+". A tabela é criada na D1 após o deploy desta versão.";}
+ finally{busHistory.busy=false;el("historyRefresh").disabled=false;}
+}
+function shortTime(ms){return new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});}
+function renderHistory(){
+ const q=el("historySearch").value.trim().toLocaleLowerCase("pt-BR"),line=GPS.normalizeLine(q);
+ const rows=busHistory.rows.filter(v=>!q||String(v.id).includes(q)||v.linhas.some(l=>l.linha===line||String(l.linha).toLocaleLowerCase("pt-BR").includes(q)));
+ const box=el("historyList");box.replaceChildren();
+ el("historyState").textContent=busHistory.rows.length?rows.length+" de "+busHistory.rows.length+" carros · atualizado às "+new Date(busHistory.loadedAt).toLocaleTimeString("pt-BR"):"Nenhum registro ainda. Os carros entram aqui conforme aparecem nas consultas ao SIU.";
+ for(const v of rows.slice(0,200)){
+  const row=document.createElement("button");row.type="button";row.className="history-row";
+  const name=document.createElement("b");name.textContent="CARRO "+v.id;
+  const chips=document.createElement("span");chips.className="history-lines";
+  for(const l of v.linhas.slice(0,8)){
+   const chip=document.createElement("span");chip.className="history-chip";
+   const n=document.createElement("strong");n.textContent=l.linha;
+   const t=document.createElement("small");t.textContent=shortTime(l.ultimaVez);
+   chip.title="Primeira vez: "+shortTime(l.primeiraVez)+" · última: "+shortTime(l.ultimaVez);
+   chip.append(n,t);chips.append(chip);
+  }
+  row.append(name,chips);
+  row.addEventListener("click",()=>{
+   const bus=s.buses.get(String(v.id));
+   if(bus){selectVehicle(bus,false);if(isMobile())setView("mapa");}
+   else{el("directNumber").value=v.id;if(isMobile())setView("frota");el("directResult").textContent="Carro "+v.id+" sem posição na memória deste navegador. Toque em Localizar para consultar o SIU.";}
+  });
+  box.append(row);
+ }
+}
+el("historySearch").addEventListener("input",renderHistory);
+el("historyRefresh").addEventListener("click",()=>void loadHistory(true));
+el("fleetLine").addEventListener("change",()=>void drawRouteLines());
 el("lineWatchGo").addEventListener("click",()=>void searchLines());
 el("lineWatch").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();void searchLines();}});
 // Modo celular: uma área por vez (Geral, Mapa, Frota, Eventos, Ajustes) com abas fixas embaixo.
 const mobileQuery=window.matchMedia("(max-width:740px)");
-const VIEWS=["geral","mapa","frota","eventos","ajustes"];
+const VIEWS=["geral","mapa","frota","historico","eventos","ajustes"];
 function isMobile(){return mobileQuery.matches;}
 function setView(view){
  if(!VIEWS.includes(view))view="mapa";
@@ -716,6 +816,7 @@ function setView(view){
   link.classList.toggle("active",on);
   if(on)link.setAttribute("aria-current","page");else link.removeAttribute("aria-current");
  }
+ if(view==="historico")void loadHistory();
  if(isMobile()){
   try{localStorage.setItem("feirabus-cco-view",view);}catch{}
   window.scrollTo(0,0);
@@ -796,4 +897,5 @@ el("start").disabled=true;
 eventLog("Interface de controle carregada. Nenhuma ocorrência externa é presumida.");
 restore();
 paint();
+void loadHistory();
 })();
