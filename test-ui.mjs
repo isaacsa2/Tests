@@ -25,3 +25,19 @@ assert.ok(fs.existsSync("public/favicon.svg")&&fs.existsSync("public/favicon.ico
 assert.ok(app.includes('https://tile.openstreetmap.org/{z}/{x}/{y}.png'),"Base de mapa OSM ausente");
 assert.ok(!app.includes("basemaps.cartocdn.com")&&!html.includes("basemaps.cartocdn.com"),"CARTO ainda exige API key");
 assert.ok(app.includes('function applyMapTheme(mode)')&&css.includes('.cco-map-dark .leaflet-tile-pane'),"Alternância de tema escuro local perdida");
+
+// Passageiro, frota de referência e desempenho de varredura.
+const passenger=fs.readFileSync("public/passageiro.html","utf8");
+const passengerJS=fs.readFileSync("public/assets/passenger.js","utf8");
+const fleet=fs.readFileSync("public/assets/fleet.js","utf8");
+const manifest=JSON.parse(fs.readFileSync("public/manifest.webmanifest","utf8"));
+const serviceWorker=fs.readFileSync("public/sw.js","utf8");
+assert.ok(html.includes('href="/passageiro.html"')&&html.includes('/assets/fleet.js'),"CCO sem acesso ao passageiro/frota");
+assert.ok(app.includes('Math.max(0,1600-')&&!app.includes('Math.max(0,2500-'),"Intervalo de consultas não foi otimizado");
+assert.ok(app.includes("FeiraBusFleet?.lookup"),"Ficha não usa referências da frota");
+for(const path of ["/api/lines","/api/schedule","/api/predictions","/api/vehicle"])assert.ok(passengerJS.includes(path),"Recurso ausente: "+path);
+assert.ok(passenger.includes('rel="manifest"')&&passenger.includes('/assets/passenger.js'),"Página não carregou PWA");
+assert.ok(serviceWorker.includes('url.pathname.startsWith("/api/")')&&serviceWorker.includes("return; // Nunca devolver"),"Service Worker não pode armazenar resposta SIU");
+assert.ok(!fleet.includes("fetch(")&&fleet.includes('"15545"')&&fleet.includes('"32003"'),"Frota deve ser referência estática, não scraping");
+assert.ok(manifest.start_url==="/passageiro.html"&&manifest.icons.some(i=>i.sizes==="192x192")&&manifest.icons.some(i=>i.sizes==="512x512"),"Manifest precisa ícones PNG 192/512");
+for(const icon of manifest.icons.filter(i=>i.type==="image/png"))assert.ok(fs.existsSync("public"+icon.src),"Imagem PWA ausente: "+icon.src);

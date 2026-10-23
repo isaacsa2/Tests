@@ -176,7 +176,13 @@ async function action(url,env,ctx){
   }
   if(p==="/api/predictions"){
     const n=ident(q.get("stop")),d=await upstream("V3/buscarPrevisoes/"+n+"/false/0/"+city+"/retornoJSON","retornoJSON",180,ctx);
-    return {previsoes:success(d)?array(d.previsoes).map(x=>({itinerario:x?.codItinerario==null?null:String(x.codItinerario),linha:String(x?.sgLin??""),carro:String(x?.numVeicGestor??"")})):[]};
+    return {previsoes:success(d)?array(d.previsoes).filter(x=>x?.sgLin!=="Sem Dados").map(x=>({
+      itinerario:x?.codItinerario==null?null:String(x.codItinerario),
+      linha:String(x?.sgLin??"").slice(0,50),carro:String(x?.numVeicGestor??"").slice(0,40),
+      previsao:String(x?.prev??"").slice(0,110),
+      destino:String(x?.apelidoLinha??"").slice(0,90),
+      acessibilidade:String(x?.tpAcess??"").slice(0,15)
+    })):[]};
   }
   if(p==="/api/vehicles"){
     const n=ident(q.get("itinerary")),d=await upstream("V3/retornaVeiculosMapa/"+n+"/0/"+city+"/retornoJSONVeiculos","retornoJSONVeiculos",45,ctx);

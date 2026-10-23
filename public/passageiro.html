@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#071827">
+<meta name="description" content="Horários oficiais programados, previsões de chegada por parada e consulta de ônibus em Feira de Santana.">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any">
+<link rel="apple-touch-icon" href="/assets/pwa-192.png">
+<link rel="stylesheet" href="/assets/passenger.css">
+<title>FeiraBus • Passageiro</title>
+</head><body>
+<header class="app-head">
+ <div class="brand"><div class="bus-icon">FB</div><div><strong>FeiraBus</strong><small>FEIRA DE SANTANA · BA</small></div></div>
+ <a href="/" class="head-link">CCO ↗</a>
+</header>
+<main>
+ <section class="hero"><div class="eyebrow"><span></span> INFORMAÇÕES DO SIU MOBILE</div>
+ <h1>Seu ônibus.<br><em>Na hora certa.</em></h1>
+ <p>Consulte horários previstos, quadro de partidas e números de ônibus. Dados obtidos do SIU, quando disponíveis.</p>
+ <div class="hero-actions"><button id="install" class="button button-main" hidden>Instalar aplicativo</button><span id="connection" class="connection">Carregando linhas…</span></div>
+ </section>
+ <div id="feedback" role="status" aria-live="polite" class="feedback">Selecione uma linha para consultar os horários.</div>
+ <section class="card" id="linhas"><div class="section-header"><div class="section-id">01 / LINHAS</div><h2>Quadro de horários</h2><p>Partidas programadas por origem e tipo de dia</p></div>
+ <label for="lineFilter">Filtrar pelo número ou nome</label><input id="lineFilter" placeholder="Ex.: 085, Santo Antônio…" autocomplete="off">
+ <label for="lineSelect">Linha</label><select id="lineSelect"><option value="">Carregando catálogo…</option></select>
+ <label for="variantSelect">Sentido ou variante</label><select id="variantSelect"><option value="">Selecione uma linha</option></select>
+ <div class="inline"><div><label for="daySelect">Tipo de dia</label><select id="daySelect"><option value="">Selecione uma linha</option></select></div><button id="refreshSchedule" type="button" class="button button-outline">↻ Atualizar</button></div>
+ <div class="time-head"><h3>Horários disponíveis</h3><span id="scheduleCount">—</span></div>
+ <div id="times" class="time-grid"><div class="empty">Os horários oficiais aparecerão aqui.</div></div>
+ <p id="scheduleCaveat" class="note">Os horários são partidas programadas. Atraso ou adiantamento de uma viagem específica exige dados adicionais.</p>
+ </section>
+ <section class="card"><div class="section-header"><div class="section-id">02 / PARADAS</div><h2>Previsão de chegada</h2><p>Consulte o código de uma parada no SIU.</p></div>
+ <label for="stopCode">Código da parada</label>
+ <div class="query-row"><input id="stopCode" inputmode="numeric" type="text" placeholder="Digite o código do ponto"><button id="checkStop" type="button" class="button button-main">Consultar</button></div>
+ <div id="predictions" class="results"><div class="empty">Nenhuma parada consultada.</div></div>
+ <p class="note">As previsões representam a estimativa informada pelo SIU, não um registro de pontualidade comprovada.</p>
+ </section>
+ <section class="card"><div class="section-header"><div class="section-id">03 / FROTA</div><h2>Pesquisar ônibus</h2><p>Localize o carro no SIU e consulte o acervo histórico do Ônibus Brasil.</p></div>
+ <label for="vehicleCode">Prefixo do veículo</label>
+ <div class="query-row"><input id="vehicleCode" inputmode="numeric" type="text" placeholder="Ex.: 15545"><button id="checkVehicle" class="button button-main" type="button">Pesquisar</button></div>
+ <div id="vehicleResult" class="results"><div class="empty">Informe o prefixo para consultar.</div></div>
+ </section>
+ <footer>Protótipo independente; não afiliado às operadoras, à TACOM ou ao Ônibus Brasil. O histórico fotográfico não confirma qual empresa opera um carro hoje. Não executa consultas com o app fechado.</footer>
+</main>
+<nav class="bottom-nav" aria-label="Navegação"><a href="#linhas">Horários</a><a href="#stopCode">Paradas</a><a href="#vehicleCode">Frota</a><a href="/">CCO</a></nav>
+<script src="/assets/fleet.js" defer></script><script src="/assets/passenger.js" defer></script>
+</body></html>
