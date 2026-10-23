@@ -170,3 +170,26 @@ npx wrangler deploy
 Em Workers Builds conectado ao GitHub, mantenha `npm test` no build e `npx wrangler deploy` como deploy; a inicialização idempotente permite que o Worker prepare o schema na primeira chamada. O nome do banco já foi confirmado como `db_app`. Não execute migrações em uma base diferente.
 
 **Nota de segurança:** dados são provenientes do serviço público SIU. Para redistribuição ampla/comercial, alinhe autorização do operador. D1 mantém um registro por prefixo, com data de observação, sem dados pessoais ou histórico de percurso. Se o D1 não estiver configurado/disponível, o gateway SIU continua funcionando.
+
+
+## Contenção de cotas D1 (23/10/2026)
+
+Esta otimização visa o limite do plano Cloudflare Workers Free (as cotas são compartilhadas entre todos os bancos D1 da conta):
+
+- O Worker verifica `sqlite_master` uma única vez por instância aquecida; as 5 instruções idempotentes de criação só são enviadas se o esquema não existir. Não roda DDL em todo endpoint.
+- Rotas/itinerários usam `INSERT OR IGNORE` e memorização em instância: identificadores conhecidos **não** são atualizados continuamente.
+- O catálogo de linhas não é regravado por pelo menos **6 horas** na instância e também possui proteção SQL temporal contra escritas redundantes entre instâncias.
+- A última posição por ônibus é gravada no máximo uma vez a cada **5 minutos** por instância, com proteção SQL cruzada entre instâncias. Isso **não limita as consultas GPS ao SIU** — só a persistência D1.
+- Horários do passageiro: cache de leitura no Worker/edge por **15 minutos**. A D1 mantém a tabela de partidas reutilizável por até **30 minutos**.
+- `/api/memory/snapshot`: cache de **120 segundos**; `/api/memory/status`: **300 segundos**. Há cache em memória da instância e tentativa de Cache API por região, mais deduplicação de requisições simultâneas. Os retornos incluem `cacheMaxAgeSeconds`.
+- Sem `DELETE` ou criação de tabelas extras nesta atualização. A estrutura existente em `db_app` é preservada.
+
+Essas medidas reduzem repetição de leitura e escrita, mas **não são um limite absoluto de gastos por dia**, pois instâncias do Worker podem ficar em regiões distintas e os outros bancos da conta usam as mesmas cotas. O dashboard da Cloudflare é a fonte para acompanhar linhas lidas/escritas. Um erro de cota da D1 não deve impedir o SIU nem a memória IndexedDB de continuar operando.
+
+Se o painel D1 apresentar **zero tabelas** enquanto `/api/memory/status` mostrar `initialized:true` e itinerários salvos, atualize a página e confira no editor SQL da **db_app**:
+
+```sql
+SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'fb_%';
+```
+
+Esse SELECT retorna as tabelas realmente presentes. Não execute `DROP`, `TRUNCATE`, nem scripts de recriação para diagnosticar essa divergência. Para auditoria das cotas: https://developers.cloudflare.com/d1/observability/billing/.

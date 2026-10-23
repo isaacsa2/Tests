@@ -151,18 +151,58 @@ function vehicle(x,route,idOverride){
   const dir=value(x?.direcao);
   return {id:String(x?.numVeicGestor??idOverride??"").slice(0,35),linha:String(x?.descricao??x?.sgLin??"").slice(0,70),lat,lon,rumo:Number.isFinite(dir)?dir:null,itinerario:route??null,consultadoEm:new Date().toISOString()};
 }
+// Edge cache: shared historical memory has no need for per-user D1 reads.
+const D1_CACHE_SECONDS=120;
+const D1_STATUS_CACHE_SECONDS=300;
+const d1Requests=new Map();
+const d1HotCache=new Map();
+async function cachedSharedRead(key,seconds,loader,ctx){
+ const cached=d1HotCache.get(key);
+ if(cached && cached.expires>Date.now())return cached.data;
+ // Shared edge-cache key. API responses remain historical, never claimed live.
+ const cacheKey=new Request("https://tests.isaacsa2-santana.workers.dev/.feirabus-cache/d1/"+key+"/v3");
+ const cache=globalThis.caches?.default;
+ try{
+  const hit=cache&&await cache.match(cacheKey);
+  if(hit){
+   const data=await hit.json();
+   d1HotCache.set(key,{data,expires:Date.now()+seconds*1000});
+   return data;
+  }
+ }catch{}
+ if(d1Requests.has(key))return d1Requests.get(key);
+ const pending=(async()=>{
+  const data=await loader();
+  if(d1HotCache.size>500)d1HotCache.clear();
+  d1HotCache.set(key,{data,expires:Date.now()+seconds*1000});
+  if(cache&&ctx?.waitUntil){
+   try{
+    ctx.waitUntil(cache.put(cacheKey,new Response(JSON.stringify(data),{
+     headers:{"Cache-Control":"public, max-age="+seconds,"Content-Type":"application/json"}
+    })).catch(()=>{}));
+   }catch{}
+  }
+  return data;
+ })();
+ d1Requests.set(key,pending);
+ try{return await pending;}finally{d1Requests.delete(key);}
+}
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-d1-shared-memory-v5",d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-d1-quota-guard-v6",d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
-    try{return await dbStatus(env.FEIRABUS_DB);}
-    catch(e){throw bad("D1 indisponivel: "+String(e?.message??e).slice(0,130),503);}
+    try{
+      return {...await cachedSharedRead("status",D1_STATUS_CACHE_SECONDS,()=>dbStatus(env.FEIRABUS_DB),ctx),
+        cacheMaxAgeSeconds:D1_STATUS_CACHE_SECONDS};
+    }catch(e){throw bad("D1 indisponivel: "+String(e?.message??e).slice(0,130),503);}
   }
   if(p==="/api/memory/snapshot"){
     if(!HAS_DB(env))throw bad("D1 nao configurada; confira wrangler.jsonc e o deploy",503);
-    try{return await getMemory(env.FEIRABUS_DB);}
-    catch(e){throw bad("Memoria D1 indisponivel: "+String(e?.message??e).slice(0,130),503);}
+    try{
+      return {...await cachedSharedRead("snapshot",D1_CACHE_SECONDS,()=>getMemory(env.FEIRABUS_DB),ctx),
+        cacheMaxAgeSeconds:D1_CACHE_SECONDS};
+    }catch(e){throw bad("Memoria D1 indisponivel: "+String(e?.message??e).slice(0,130),503);}
   }
   if(p==="/api/initialize"){
     // O app FSA chama este endpoint ao abrir pela primeira vez. Retornamos
@@ -189,6 +229,7 @@ async function action(url,env,ctx){
   if(p==="/api/schedule"){
     // API reproduzida do APK: assets/www/retornaQroLinha.html, funcao iniciar().
     const n=ident(q.get("line"));
+    return cachedSharedRead("schedule-"+n,900,async()=>{
     if(HAS_DB(env)){
       try{
         const cached=await readSchedule(env.FEIRABUS_DB,n);
@@ -208,6 +249,7 @@ async function action(url,env,ctx){
       });
     if(horarios.length)remember(env,ctx,db=>saveSchedule(db,n,horarios));
     return {linha:n,horarios,fonte:"SIU Mobile - quadro de partidas programadas",pontualidade:"nao-aferida",consultadoEm:new Date().toISOString()};
+    },ctx);
   }
   if(p==="/api/stops"){
     const n=ident(q.get("line"));let d;
