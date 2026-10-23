@@ -129,3 +129,13 @@ O layout do FeiraBus foi reformulado para uma central de monitoramento de ônibu
 Nota: 'consultado recentemente' é uma posição recebida na requisição HTTP desta sessão, não comprova o instante da medição GPS. Posições restauradas são históricas e ficam cinza. Protótipo independente, não oficial.
 
 A página usa bibliotecas de mapa externas e requer conexão para carregar os mapas-base. O teste automatizado de estrutura não substitui a validação visual no navegador.
+
+## Hotfix Leaflet / mapas de CCO / favicon (23/10/2026)
+
+- O hash SRI de `leaflet.css` foi alinhado ao publicado em https://leafletjs.com/download para Leaflet 1.9.4. O JavaScript manteve o hash correto.
+- O tile-server CARTO foi **removido**. Em 2026, os tiles `dark_all` passaram a exigir API key; o painel utiliza só a base raster OSM e aplica modo escuro usando CSS no navegador, sem serviços pagos.
+- O seletor Escuro/Ruas muda o filtro da mesma camada, sem duplicar requisições HTTP de tiles. A escolha fica gravada no `localStorage` do navegador.
+- Adiciona `favicon.svg` e `favicon.ico`, incluídos nos assets Cloudflare Workers, para eliminar o 404 do ícone.
+- Observe a política oficial do servidor OSM: https://operations.osmfoundation.org/policies/tiles/ (atribuição, cache do navegador e sem prefetch/bulk download). Para tráfego público elevado, migrar para tiles próprios ou serviço autorizado.
+
+**Os endpoints SIU e a memória IndexedDB não foram alterados.**

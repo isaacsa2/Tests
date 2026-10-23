@@ -11,23 +11,22 @@ const pins=L.layerGroup().addTo(map), linesLayer=L.layerGroup().addTo(map);
 let selectedVehicleId=null;
 const sessionEvents=[];
 let previousLineOptions="";
-const darkTiles=L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
- maxZoom:20,subdomains:"abcd",attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+// Apenas tiles do OSM: o modo escuro é um filtro CSS local, sem token ou serviço pago.
+// Uma única camada evita requisições duplicadas quando o operador troca o tema.
+const osmTiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{
+ maxZoom:19,
+ attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
 });
-const streetTiles=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
- maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-});
-darkTiles.addTo(map);
-let darkTileFailures=0;
-darkTiles.on("tileerror",()=>{
- darkTileFailures++;
- if(darkTileFailures>=5&&map.hasLayer(darkTiles)){
-  map.removeLayer(darkTiles);
-  streetTiles.addTo(map);
-  el("mapTheme").value="streets";
-  eventLog("Mapa escuro indisponível; usando mapa de ruas como alternativa.","warn");
- }
-});
+osmTiles.addTo(map);
+function applyMapTheme(mode){
+ const dark=mode==="dark";
+ map.getContainer().classList.toggle("cco-map-dark",dark);
+ el("mapTheme").value=dark?"dark":"streets";
+ try{localStorage.setItem("feirabus-map-theme",dark?"dark":"streets");}catch{}
+}
+let initialMapTheme="dark";
+try{const saved=localStorage.getItem("feirabus-map-theme");if(saved==="dark"||saved==="streets")initialMapTheme=saved;}catch{}
+applyMapTheme(initialMapTheme);
 function operationalClock(){
  const now=new Date();
  const options={timeZone:"America/Bahia",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false};
@@ -445,16 +444,7 @@ async function clearMemory(){
 }
 el("fleetStatus").addEventListener("change",paint);
 el("fleetLine").addEventListener("change",paint);
-el("mapTheme").addEventListener("change",e=>{
- if(e.target.value==="dark"){
-  if(map.hasLayer(streetTiles))map.removeLayer(streetTiles);
-  if(!map.hasLayer(darkTiles))darkTiles.addTo(map);
- }else{
-  if(map.hasLayer(darkTiles))map.removeLayer(darkTiles);
-  if(!map.hasLayer(streetTiles))streetTiles.addTo(map);
- }
- pins.bringToFront?.();
-});
+el("mapTheme").addEventListener("change",e=>applyMapTheme(e.target.value));
 function toggleMapExpanded(){
  const panel=document.querySelector(".map-panel");
  const on=!panel.classList.contains("is-expanded");
