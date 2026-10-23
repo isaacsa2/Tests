@@ -207,3 +207,17 @@ Os lotes favorecem o itinerário selecionado e linhas com carros vistos recentem
 No Worker, cache das posições passa a **12 s por veículo** e **20 s por itinerário**, com origem HTTP SIU e deduplicação já existente. O campo `consultadoEm` agora conserva a data/hora da **requisição efetiva feita ao SIU**, incluindo respostas vindas do cache. Isso não comprova a data da medição original do módulo GPS do ônibus. A D1 mantém a política de persistir **no máximo uma posição por carro a cada 5 minutos**, sem multiplicar escrita na D1 por causa do polling mais ágil.
 
 Não mantém monitoramento em segundo plano com a aba fechada, não envia alterações ao SIU e não garante novos pontos quando o próprio sistema do operador demora a atualizar.
+
+
+## Busca por prefixo (SIU + D1 + acervo Ônibus Brasil)
+
+O app Passageiro agora distingue três informações:
+1. **Identidade histórica da frota:** o índice local de prefixos veio de listas de Rosa e Auto Ônibus São João transcritas pelo mantenedor. A classificação não confirma que o carro opere atualmente. Atribuições conflitantes não são tratadas como certeza; a correção manual do prefixo **11010 → São João** prevalece sobre uma ficha incorreta da Rosa. O **33009 → São João** possui registros fotográficos documentados (19 no índice consultado) e um exemplo de foto identificada em 2026.
+2. **Última posição conhecida:** `/api/vehicle?number=...` consulta o fluxo de embarque apenas quando o SIU fornece identidade compatível, ou retorna a última posição da D1 marcada como *histórica*, quando disponível. Não preenche identidade ausente na resposta do SIU com o prefixo digitado.
+3. **Busca por itinerários:** botão *Procurar nas linhas do SIU* usa `/api/vehicle/search?number=33009&cursor=0`, buscando **no máximo 3 itinerários por requisição**, com paginação. A interface avança enquanto estiver aberta e visível, mostra progresso, permite parar e não escreve na D1 o resultado negativo. Quando localiza um veículo, grava somente essa observação com a proteção de cinco minutos por prefixo já existente.
+
+Os itinerários são extraídos da memória compartilhada `fb_routes` existente, que deve ser abastecida antes pelo CCO (83 itinerários na primeira integração). Se não houver rotas, a busca informa que é necessário iniciar a descoberta pelo CCO. Uma busca completa não garante encontrar carros sem telemetria disponível naqueles itinerários.
+
+O endpoint de embarque `retornaVeiculoEmbarcado` do SIU Mobile **não é um catálogo universal da frota**: o APK só o invoca quando o passageiro usa o fluxo especial após embarcar. O mapa comum utiliza `V3/retornaVeiculosMapa/{codItinerario}/0/{cidade}/retornoJSONVeiculos`. Por isso o app não deve mostrar “o carro não existe” após apenas uma consulta direta vazia.
+
+A pesquisa no Ônibus Brasil abre páginas de referências e não copia fotografias, faz scraping automático ou disponibiliza dados em massa para terceiros. Para novas confirmações de frota, atualize com fonte verificável e data da observação.

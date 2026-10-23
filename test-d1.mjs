@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import worker from "./src/worker.js";
-import {ensureDb,HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus} from "./src/d1-memory.js";
+import {ensureDb,HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus,lookupVehicle,listSearchRoutes} from "./src/d1-memory.js";
 
 class MockD1 {
  constructor(){
@@ -37,6 +37,10 @@ class MockD1 {
       db.schemaProbes++;
       return db.schemaExists?{name:"fb_lines"}:null;
     }
+    if(sql.includes("SELECT id,line AS linha,lat,lon,heading AS rumo,itinerary AS itinerario,observed_at FROM fb_vehicles WHERE id=?")){
+      const row=t.vehicles.get(this.args[0]);
+      return row&&row.observed_at>=this.args[1]?row:null;
+    }
     if(sql.includes("SELECT payload,updated_at FROM fb_schedules")){
       const row=t.schedules.get(this.args[0]);
       return row&&row.updated_at>=this.args[1]?row:null;
@@ -50,7 +54,8 @@ class MockD1 {
    async all(){
     db.readQueries++;
     const t=db.tables;let rows=[];
-    if(sql.includes("FROM fb_lines"))rows=[...t.lines.values()];
+    if(sql.startsWith("SELECT id FROM fb_routes ORDER BY"))rows=[...t.routes.values()].sort((a,b)=>b.updated_at-a.updated_at||String(a.id).localeCompare(String(b.id)));
+    else if(sql.includes("FROM fb_lines"))rows=[...t.lines.values()];
     else if(sql.includes("FROM fb_routes"))rows=[...t.routes.values()].sort((a,b)=>b.updated_at-a.updated_at);
     else if(sql.includes("FROM fb_vehicles"))rows=[...t.vehicles.values()].filter(v=>v.observed_at>=this.args[0]).sort((a,b)=>b.observed_at-a.observed_at);
     else throw new Error("SQL mock unsupported: "+sql);
@@ -95,6 +100,13 @@ assert.equal(snapshot.veiculos[0].id,"400");
 assert.equal(snapshot.veiculos[0].origem,"d1");
 assert.ok(snapshot.veiculos[0].lastSeen>=now);
 assert.equal(snapshot.veiculos[0].lat,-12.25);
+const foundBus=await lookupVehicle(db,"400");
+assert.equal(foundBus.id,"400");
+assert.equal(foundBus.origem,"d1");
+assert.equal(foundBus.historico,true);
+assert.equal(await lookupVehicle(db,"33009"),null,"No false GPS position for catalog-only prefix");
+const searchRoutes=await listSearchRoutes(db);
+assert.ok(searchRoutes.includes("90")&&searchRoutes.includes("91"));
 const stat=await dbStatus(db);
 assert.equal(stat.initialized,true);
 assert.deepEqual([stat.lines,stat.routes,stat.vehicles,stat.schedules],[2,2,1,1]);
