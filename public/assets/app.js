@@ -93,10 +93,13 @@ async function run(){
   const d=await api("/api/lines",true);s.lines=d.linhas||[];paint();
   if(!s.lines.length){
     const x=d.diagnostico||{};
-    say("Nenhuma linha interpretável recebida. Tipo: "+(x.tipoLinhas??"desconhecido")+
-      "; itens decodificados: "+(x.itensInterpretados??0)+
-      "; campos: "+(x.camposResposta||[]).join(", ")+
-      ". Verifique /api/diagnostics/lines e confirme se o SIU está entregando linhas.",true);
+    if(x.catalogoVazioConfirmado)
+      say("O SIU respondeu com o catálogo de linhas vazio (linhas: []). A cidade não está sem ônibus: o endpoint não forneceu linhas nesta consulta. Confira /api/diagnostics/lines.",true);
+    else
+      say("O SIU não retornou linhas interpretáveis. Tipo: "+(x.tipoLinhas??"?")+
+        "; elementos brutos: "+(x.elementosBrutos??"?")+
+        "; itens reconhecidos: "+(x.itensInterpretados??0)+
+        ". Confira /api/diagnostics/lines.",true);
     return;
   }
   for(const line of s.lines){
