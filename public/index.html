@@ -13,12 +13,14 @@
 <section class="bar" aria-label="Monitoramento">
 <button id="start" class="primary">Varrer linhas da cidade</button>
 <button id="stop" disabled>Interromper</button>
+<button id="clearMemory" type="button" disabled>Limpar memória</button>
+<div class="memoryInfo" aria-live="polite"><span>MEMÓRIA LOCAL</span><strong id="memoryState">Carregando...</strong></div>
 <label class="toggle"><input id="wide" type="checkbox" checked> Varredura ampliada de todas as paradas</label>
 <label class="toggle"><input id="poll" type="checkbox"> Atualizar GPS ao concluir</label>
 <button id="export">Exportar itinerários (GeoJSON)</button>
 </section>
 <p class="notice" id="notice" role="status">Os marcadores iniciais são fictícios. A varredura só começa quando você clicar em iniciar. O serviço externo ainda não foi validado.</p>
-<div class="metrics"><article><span>CARROS LOCALIZADOS</span><strong id="totalCars">3</strong><small>Não equivale ao tamanho total da frota</small></article><article><span>LINHAS DISPONÍVEIS</span><strong id="totalLines">—</strong><small>Conforme resposta do SIU</small></article><article><span>ITINERÁRIOS DESCOBERTOS</span><strong id="totalRoutes">—</strong><small>Extraídos das previsões</small></article><article><span>COBERTURA</span><strong id="coverage">—</strong><small id="stage">Aguardando consulta real</small></article></div>
+<div class="metrics"><article><span>CARROS LOCALIZADOS</span><strong id="totalCars">3</strong><small id="freshCars">Exemplos fictícios</small></article><article><span>LINHAS DISPONÍVEIS</span><strong id="totalLines">—</strong><small>Conforme resposta do SIU</small></article><article><span>ITINERÁRIOS DESCOBERTOS</span><strong id="totalRoutes">—</strong><small>Extraídos das previsões</small></article><article><span>COBERTURA</span><strong id="coverage">—</strong><small id="stage">Aguardando consulta real</small></article></div>
 <div class="workspace">
 <aside class="panel side">
 <h2>Encontrar ônibus</h2>
@@ -32,9 +34,10 @@
 </aside>
 <section class="panel mapPanel"><div class="mapHead"><div><h2>Mapa de Feira de Santana</h2><small id="mapInfo">Marcadores de demonstração (não reais)</small></div><button id="fit">Enquadrar veículos</button></div><div id="map"></div><div class="legend">● Azul: veículo localizado · Cinza: sem atualização recente · Trajetos obtidos sob demanda</div></section>
 </div>
-<p class="disclaimer">A varredura percorre linhas e paradas que o SIU disponibilizar, de forma sequencial e com cache. Carros inativos ou não expostos pela API podem não aparecer. A hora exibida é da consulta, não necessariamente da leitura GPS. Dados e rotas reais mantêm escala geográfica; 1:2 será aplicado apenas na conversão para OMSI.</p>
+<p class="disclaimer">A varredura percorre linhas e paradas que o SIU disponibilizar, de forma sequencial e com cache. Carros inativos ou não expostos pela API podem não aparecer. A hora exibida é da consulta, não necessariamente da leitura GPS. O histórico fica salvo apenas neste navegador (IndexedDB), podendo ser removido nas configurações do navegador ou por falta de espaço; em outro aparelho não há sincronização. A varredura só faz consultas enquanto esta página estiver aberta. Dados e rotas reais mantêm escala geográfica; 1:2 será aplicado apenas na conversão para OMSI.</p>
 </main>
 <footer>Protótipo independente, não afiliado à TACOM nem à Prefeitura. © Dados cartográficos: <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Não publique informações sensíveis.</footer>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<script src="/assets/memory.js" defer></script>
 <script src="/assets/app.js" defer></script>
 </body></html>

@@ -101,3 +101,17 @@ O parser agora aceita listas JSON aninhadas ou listas de strings que contêm seq
 Na consulta `/api/lines`, o SIU pode retornar `linhas` como um array contendo string com objetos no formato `{'cod':'12','sgl':'001'}`, que não é JSON válido. O código passou a usar um decodificador limitado para literais no estilo Python (`True`, `False`, `None` e strings entre aspas simples); não usa `eval` nem executa scripts de origem externa.
 
 O endpoint `/api/diagnostics/lines` diferencia `catalogoVazioConfirmado: true` (payload `linhas: []` ou vazio) e lista não vazia que não pôde ser decodificada. Esses dados não provam que a cidade não tem linhas, apenas descrevem a resposta desta API. Nova versão em `/api/status`: `2026-10-23-siu-legacy-catalog-v3`.
+
+## Memória persistente no navegador (IndexedDB)
+
+O FeiraBus agora grava automaticamente um checkpoint no **IndexedDB do navegador**, sem precisar de variável nova na Cloudflare. A memória armazena:
+- linhas e itinerários descobertos;
+- números/posições de veículos observados (posição salva como histórico, com data da última consulta);
+- paradas consultadas, etapa atual (primeira passagem/ampliada), próximo índice de linha e fila de paradas pendentes;
+- geometria dos itinerários exportados em GeoJSON, reutilizada em exportações futuras.
+
+Ao abrir novamente o site **no mesmo navegador e perfil**, o usuário verá "Memória local" e poderá clicar em **Retomar varredura** sem reconsultar tudo do zero. O botão **Limpar memória** apaga snapshots e geometrias (exige confirmação). Nova varredura preserva os veículos conhecidos enquanto redescobre rotas. Não há sincronização entre aparelhos, nem trabalho em segundo plano com a aba fechada.
+
+**Idade dos dados:** veículos recuperados aparecem em cinza até serem consultados novamente nesta sessão; cada carro mostra a data/hora da última consulta HTTP, que não é a data garantida do GPS. Registros de carros com mais de 7 dias são descartados ao restaurar. O IndexedDB pode ser removido pelo próprio navegador por limpeza de dados, modo privado ou pressão de armazenamento.
+
+Teste: `npm test`, incluindo `test-memory.mjs`. Os testes simulam IndexedDB local e SIU. Não medem nem atestam atualidade das posições de ônibus.
