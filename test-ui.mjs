@@ -83,7 +83,7 @@ for(const name of [...passengerJS.matchAll(/\bid\("([^"]+)"\)/g)].map(m=>m[1]))
 assert.ok(passengerJS.includes("/api/stops?line=")&&passengerJS.includes("function groupStops(")&&passengerJS.includes("function selectOrigin("),"Paradas por origem ausentes");
 assert.ok(!passengerJS.includes("showSchedule("),"Regressão: função inexistente ao limpar a linha");
 assert.ok(passengerCss.includes("@media(min-width:1024px)")&&passengerCss.includes("@media(min-width:700px)"),"Layout PC/celular ausente");
-assert.ok(serviceWorker.includes('"feirabus-passenger-v4"'),"Cache do PWA precisa nova versão após mudar a interface");
+assert.ok(serviceWorker.includes('"feirabus-passenger-v5"'),"Cache do PWA precisa nova versão após mudar a interface");
 console.log("OK: passageiro com origens, pontos e layout responsivo.");
 
 // CCO: modo celular por abas e filtro "GPS por linha".
@@ -99,3 +99,13 @@ assert.ok(app.includes("function searchLines()")&&app.includes("function gpsPool
 assert.ok(app.includes("slice(0,24)"),"Busca por linha precisa limite de itinerários por rodada");
 assert.ok(app.includes("if(!map.getSize().x){pendingFit=true;return;}"),"Regressão: enquadrar mapa oculto vai para zoom mundial");
 console.log("OK: CCO celular por abas e GPS por linha.");
+
+// Segurança: o FeiraBus só LÊ dados públicos do SIU. Nada que dispare ação no mundo real
+// (pânico, alarme de desembarque PNE) ou consulte dados pessoais (cartão, favoritos do servidor).
+const everything=[workerSource,app,passengerJS,html,passenger].join("\n");
+for(const forbidden of ["emiteAlarme","AlarmePanico","AlarmesPanico","DesembarquePNE","pesquisaCartao","buscarFavoritos","editarNomeParadaFavorita","UltimosVeiculosChamadosPCD"])
+ assert.ok(!everything.includes(forbidden),"Endpoint proibido no código: "+forbidden);
+assert.ok(workerSource.includes('if(!Object.hasOwn(routes,kind))'),"Diagnóstico precisa de lista fechada de consultas");
+assert.ok(passengerJS.includes("Math.round(pos.coords.latitude*1000)/1000"),"Posição do passageiro deve sair arredondada do aparelho");
+assert.ok(!/innerHTML\s*=.*(assunto|texto|evento)/.test(passengerJS),"Avisos do SIU nunca como HTML");
+console.log("OK: somente leitura do SIU, posição arredondada e avisos como texto.");

@@ -194,6 +194,7 @@ async function getStop(){
  try{
   const d=await api("/api/predictions?stop="+code);
   renderPredictions(output,d.previsoes);
+  void attachStopNotices(output,code);
   try{localStorage.setItem("feirabus-passenger-last-stop",code);}catch{}
   feedback("Previsões da parada "+code+" consultadas no SIU.");
  }catch(e){output.replaceChildren(make("div","empty",e.message));feedback("Falha na previsão: "+e.message,true);}
@@ -343,6 +344,7 @@ async function toggleStop(stop,row,panel){
   const results=make("div");
   const count=renderPredictions(results,d.previsoes);
   panel.replaceChildren(results,stopTools(stopId));
+  void attachStopNotices(panel,stopId,()=>state.openStop===token);
   setShareHash(stopId);
   feedback(count?"Previsões de "+(stop.nome||"ponto "+stopId)+" consultadas no SIU.":"O SIU não informou previsão para "+(stop.nome||"ponto "+stopId)+" agora.");
  }catch(e){
@@ -446,12 +448,95 @@ function renderFavorites(){
     const d=await api("/api/predictions?stop="+encodeURIComponent(f.stop));
     renderPredictions(out,d.previsoes,f.line||"");
     out.append(make("small","fav-time","Consultado às "+new Date().toLocaleTimeString("pt-BR")));
+    void attachStopNotices(out,f.stop);
    }catch(e){out.replaceChildren(make("div","empty",e.message));}
    finally{go.disabled=false;go.textContent="↻ Atualizar";}
   });
   del.addEventListener("click",()=>removeFavorite(i));
   card.append(head,out);box.append(card);
  });
+}
+// Avisos oficiais (SIU): sempre exibidos como texto, nunca como HTML.
+function noticeItem(a,isNew){
+ const item=make("article","notice-item");
+ const title=make("strong",null,a.assunto||"Aviso");
+ if(isNew)title.append(make("span","badge","Novo"));
+ item.append(title);
+ if(a.texto)item.append(make("p",null,a.texto));
+ return item;
+}
+async function loadNotices(){
+ try{
+  const d=await api("/api/notices");
+  const list=(d.avisos||[]).filter(a=>a&&(a.assunto||a.texto));
+  const box=id("noticeList");box.replaceChildren();
+  id("avisos").hidden=!list.length;
+  if(!list.length)return;
+  const seen=new Set(load("feirabus-notices-seen")||[]);
+  for(const a of list)box.append(noticeItem(a,!!a.id&&!seen.has(a.id)));
+  store("feirabus-notices-seen",list.map(a=>a.id).filter(Boolean).slice(0,100));
+ }catch{id("avisos").hidden=true;}
+}
+async function attachStopNotices(container,stopId,stillOpen=()=>true){
+ try{
+  const d=await api("/api/notices/stop?stop="+encodeURIComponent(stopId));
+  const list=(d.avisos||[]).filter(a=>a&&(a.assunto||a.texto));
+  if(!list.length||!stillOpen()||!container.isConnected)return;
+  const box=make("div","notice-box");
+  box.append(make("small","notice-kicker","⚠ AVISO DA OPERADORA PARA ESTE PONTO"));
+  for(const a of list)box.append(noticeItem(a,false));
+  container.prepend(box);
+ }catch{}
+}
+// Paradas próximas de qualquer linha. A posição sai do aparelho já arredondada (~100 m).
+function nearbyCard(st){
+ const card=make("article","fav");
+ const head=make("div","fav-head"),title=make("div");
+ title.append(make("strong",null,st.nome||"Ponto "+st.id));
+ title.append(make("small",null,"Código "+(st.codigoSIU||st.id)+" · cerca de "+(st.distancia<1000?Math.max(10,Math.round(st.distancia/10)*10)+" m":(st.distancia/1000).toFixed(1)+" km")));
+ const actions=make("div","fav-actions");
+ const go=make("button","button button-main button-small","Previsão");go.type="button";
+ const save=make("button","button button-outline button-small",favorites().some(f=>f.stop===st.id&&!f.line)?"★":"☆");save.type="button";
+ save.setAttribute("aria-label","Salvar "+(st.nome||"ponto "+st.id)+" em Meus pontos");
+ actions.append(go,save);head.append(title,actions);
+ const out=make("div","fav-out");out.hidden=true;
+ go.addEventListener("click",async()=>{
+  out.hidden=false;go.disabled=true;
+  out.replaceChildren(make("div","empty","Consultando previsões do SIU…"));
+  try{
+   const d=await api("/api/predictions?stop="+encodeURIComponent(st.id));
+   renderPredictions(out,d.previsoes,"");
+   void attachStopNotices(out,st.id);
+  }catch(e){out.replaceChildren(make("div","empty",e.message));}
+  finally{go.disabled=false;go.textContent="↻ Atualizar";}
+ });
+ save.addEventListener("click",()=>{
+  const ok=addFavorite({stop:st.id,line:"",lineId:"",name:(st.nome||"Ponto "+st.id).slice(0,30),origin:"",stopName:st.nome||""});
+  save.textContent=ok?"★":"!";
+  feedback(ok?"Ponto "+st.id+" salvo em Meus pontos.":"Limite de "+FAV_MAX+" pontos atingido.",!ok);
+ });
+ card.append(head,out);
+ return card;
+}
+function nearbyStops(){
+ const b=id("nearbyStops"),status=id("nearbyState"),list=id("nearbyList");
+ if(!navigator.geolocation){status.textContent="Este navegador não informa a localização.";return;}
+ b.disabled=true;status.textContent="Pedindo sua localização ao navegador…";
+ navigator.geolocation.getCurrentPosition(async pos=>{
+  const lat=Math.round(pos.coords.latitude*1000)/1000,lon=Math.round(pos.coords.longitude*1000)/1000;
+  status.textContent="Consultando paradas próximas no SIU…";
+  try{
+   const d=await api("/api/stops/nearby?lat="+lat+"&lon="+lon);
+   list.replaceChildren();
+   const stops=(d.paradas||[]).filter(x=>/^\d{1,15}$/.test(String(x.id))).slice(0,12);
+   for(const st of stops)list.append(nearbyCard(st));
+   status.textContent=stops.length?stops.length+" paradas perto de você (distância em linha reta, posição aproximada).":"O SIU não encontrou paradas perto dessa posição.";
+  }catch(e){status.textContent=/região/.test(e.message)?"Você parece estar fora da área atendida pelo SIU de Feira de Santana.":"Não foi possível consultar paradas próximas: "+e.message;}
+  finally{b.disabled=false;}
+ },err=>{
+  b.disabled=false;
+  status.textContent=err.code===1?"Permissão de localização negada. Ative no navegador para usar esta função.":"Não foi possível obter sua localização agora.";
+ },{enableHighAccuracy:false,timeout:15000,maximumAge:120000});
 }
 function distance(a,b){
  const r=6371000,rad=x=>x*Math.PI/180;
@@ -805,6 +890,7 @@ id("checkVehicle").addEventListener("click",getVehicle);
 id("loadMap").addEventListener("click",()=>void loadLineMap());
 id("refreshBuses").addEventListener("click",()=>void refreshBuses());
 id("nearestStop").addEventListener("click",nearestStop);
+id("nearbyStops").addEventListener("click",nearbyStops);
 id("themeToggle").addEventListener("click",()=>{
  const next=currentTheme()==="dark"?"light":"dark";
  document.documentElement.dataset.theme=next;
@@ -814,6 +900,7 @@ id("themeToggle").addEventListener("click",()=>{
 window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change",paintThemeButton);
 paintThemeButton();
 renderFavorites();
+void loadNotices();
 for(const [input,run] of [["stopCode",getStop],["vehicleCode",getVehicle]]){
  id(input).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();run();}});
 }

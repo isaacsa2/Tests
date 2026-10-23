@@ -156,11 +156,27 @@ function stop(x){
     nome:String(x.end??x.desc??"").trim().slice(0,180),
     codigoSIU:String(x.siu??"").trim().slice(0,40)
   };
-  for(const [la,lo] of [[x.lat,x.long??x.lon??x.lng],[x.coordY,x.coordX],[x.latitude,x.longitude]]){
+  // O APK lê dt.y/dt.x nas variantes "ComCoordenadas" e de paradas próximas.
+  for(const [la,lo] of [[x.y,x.x],[x.lat,x.long??x.lon??x.lng],[x.coordY,x.coordX],[x.latitude,x.longitude]]){
     const lat=value(la),lon=value(lo);
     if(la!=null&&lo!=null&&local(lat,lon)){out.lat=lat;out.lon=lon;break;}
   }
+  const az=value(x.azimute);
+  if(x.azimute!=null&&Number.isFinite(az))out.azimute=az;
   return out;
+}
+function distanceMeters(a,b){
+  const r=6371000,rad=v=>v*Math.PI/180;
+  const h=Math.sin(rad(b.lat-a.lat)/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(rad(b.lon-a.lon)/2)**2;
+  return Math.round(2*r*Math.asin(Math.sqrt(h)));
+}
+// Avisos oficiais da operadora (APK: notificacoes.html usa cod, assunto e evento).
+// Texto puro: a interface nunca interpreta como HTML.
+function notice(x){
+  if(!x||typeof x!=="object"||x.cod==="Sem Dados")return null;
+  const assunto=String(x.assunto??"").trim().slice(0,160),texto=String(x.evento??"").trim().slice(0,2000);
+  if(!assunto&&!texto)return null;
+  return {id:String(x.cod??"").slice(0,40),assunto,texto};
 }
 function vehicle(x,route,idOverride,fetchedAt){
   const lat=value(x?.lat),lon=value(x?.long??x?.lon);
@@ -206,7 +222,7 @@ async function cachedSharedRead(key,seconds,loader,ctx){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-favorites-map-history-v9",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-nearby-notices-v10",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","stops-nearby","route-stops","notices","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
     try{
@@ -281,9 +297,61 @@ async function action(url,env,ctx){
     catch {}
     if(!success(d)||!array(d.paradas).length)
       d=await upstream("V3/buscarParadasPorLinhaComCoordenadas/"+n+"/0/"+city+"/retornoJSONH","retornoJSONH",21600,ctx);
-    return {paradas:success(d)?array(d.paradas)
+    const paradas=success(d)?array(d.paradas)
       .filter(x=>x?.cod!=null&&x.cod!=="Sem Dados")
-      .slice(0,2500).map(stop):[]};
+      .slice(0,2500).map(stop):[];
+    // Nome e sentido vêm da variante principal; coordenadas, da "ComCoordenadas"
+    // (a mesma que o mapa do APK usa), juntadas pelo código da parada.
+    if(paradas.length&&!paradas.some(x=>Number.isFinite(x.lat))){
+      try{
+        const c=await upstream("V3/buscarParadasPorLinhaComCoordenadas/"+n+"/0/"+city+"/retornoJSONH","retornoJSONH",21600,ctx);
+        const coords=new Map(success(c)?array(c.paradas).filter(x=>x?.cod!=null).map(x=>[String(x.cod).slice(0,40),stop(x)]):[]);
+        for(const item of paradas){
+          const found=coords.get(item.id);
+          if(found&&Number.isFinite(found.lat)){item.lat=found.lat;item.lon=found.lon;if(found.azimute!=null)item.azimute=found.azimute;}
+        }
+      }catch{}
+    }
+    return {paradas};
+  }
+  if(p==="/api/stops/nearby"){
+    // Posição arredondada (~100 m) antes de ir ao SIU: o passageiro não é rastreado com precisão.
+    const lat=Math.round(value(q.get("lat"))*1000)/1000,lon=Math.round(value(q.get("lon"))*1000)/1000;
+    if(!local(lat,lon))throw bad("Localização fora da região atendida",400);
+    const d=await upstream("V3/buscarParadasProximas/"+lon+"/"+lat+"/0/"+city+"/retornoJSONH","retornoJSONH",300,ctx);
+    const paradas=success(d)?array(d.paradas).filter(x=>x?.cod!=null&&x.cod!=="Sem Dados").map(stop)
+      .filter(x=>Number.isFinite(x.lat)).map(x=>({...x,distancia:distanceMeters({lat,lon},x)}))
+      .sort((a,b)=>a.distancia-b.distancia).slice(0,20):[];
+    return {paradas,origem:{lat,lon},precisao:"aprox. 100 m"};
+  }
+  if(p==="/api/route-stops"){
+    const n=ident(q.get("itinerary"));
+    const d=await upstream("buscarParadasPorItiComCoordenadas/"+n+"/0/retornoJSONPontosItinerario","retornoJSONPontosItinerario",86400,ctx);
+    return {itinerario:n,paradas:success(d)?array(d.paradas).filter(x=>x?.cod!=null&&x.cod!=="Sem Dados").slice(0,600).map(stop):[]};
+  }
+  if(p==="/api/notices"){
+    const d=await upstream("V3/buscarNotificacao/"+city+"/retornoVerificaNotificacoes","retornoVerificaNotificacoes",600,ctx);
+    return {avisos:success(d)?array(d.notificacao).map(notice).filter(Boolean).slice(0,50):[],fonte:"SIU Mobile - notificações da operadora"};
+  }
+  if(p==="/api/notices/stop"){
+    const n=ident(q.get("stop"));
+    const d=await upstream("V3/verificaNotificacaoParada/"+n+"/"+city+"/retornaJSONNotificacoesParada","retornaJSONNotificacoesParada",600,ctx);
+    return {parada:n,avisos:success(d)?array(d.notificacaoParada).map(notice).filter(Boolean).slice(0,20):[]};
+  }
+  if(p==="/api/diagnostics/siu"){
+    // Formato cru (somente leitura) das consultas novas, para conferir os campos após o deploy.
+    const kind=q.get("kind"),routes={
+      nearby:()=>["V3/buscarParadasProximas/"+(Math.round(value(q.get("lon")??-38.966)*1000)/1000)+"/"+(Math.round(value(q.get("lat")??-12.266)*1000)/1000)+"/0/"+city+"/retornoJSONH","retornoJSONH","paradas"],
+      routeStops:()=>["buscarParadasPorItiComCoordenadas/"+ident(q.get("itinerary"))+"/0/retornoJSONPontosItinerario","retornoJSONPontosItinerario","paradas"],
+      notices:()=>["V3/buscarNotificacao/"+city+"/retornoVerificaNotificacoes","retornoVerificaNotificacoes","notificacao"],
+      stopNotices:()=>["V3/verificaNotificacaoParada/"+ident(q.get("stop"))+"/"+city+"/retornaJSONNotificacoesParada","retornaJSONNotificacoesParada","notificacaoParada"]
+    };
+    if(!Object.hasOwn(routes,kind))throw bad("kind deve ser nearby, routeStops, notices ou stopNotices",400);
+    const [route,cb,field]=routes[kind]();
+    const d=await upstream(route,cb,300,ctx),rows=array(d?.[field]);
+    const first=rows[0]&&typeof rows[0]==="object"?rows[0]:{};
+    return {kind,sucesso:success(d),camposResposta:d&&typeof d==="object"?Object.keys(d).slice(0,12):[],itens:rows.length,
+      primeiroItem:Object.fromEntries(Object.entries(first).slice(0,20).map(([k,v])=>[k.slice(0,40),typeof v==="string"?v.slice(0,80):v==null||typeof v==="number"||typeof v==="boolean"?v:typeof v]))};
   }
   if(p==="/api/diagnostics/stops"){
     // Mostra apenas o formato dos campos devolvidos pelo SIU, para confirmar

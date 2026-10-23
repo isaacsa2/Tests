@@ -246,3 +246,20 @@ A pesquisa no Ônibus Brasil abre páginas de referências e não copia fotograf
 ### Teste de navegador
 
 `npm run test:browser` abre o passageiro e o CCO no Chromium (celular e PC) com a API simulada a partir de respostas reais em `tests/fixtures`. Cobre favoritos, sincronização da linha toda, mapa, ônibus antigos, link compartilhado, modo sem internet, tema, histórico e a regressão do mapa que abria no zoom mundial após o teclado do celular. No GitHub Actions roda no job `browser`; localmente precisa do pacote `playwright` 1.56.1 e do Chromium.
+
+## Paradas próximas, paradas do itinerário e avisos oficiais (APK 1.29.2)
+
+Rotas reproduzidas do app SIU Mobile 1.29.2, **somente leitura** de dados públicos:
+
+| Recurso FeiraBus | Consulta SIU (APK) | Uso |
+| --- | --- | --- |
+| `/api/stops/nearby?lat=&lon=` | `V3/buscarParadasProximas/{lon}/{lat}/0/{cidade}` | “📍 Paradas perto de mim” em Meus pontos |
+| `/api/stops?line=` (coordenadas) | `V3/buscarParadasPorLinhaComCoordenadas` (campos `y`/`x`) | “Mais perto nesta linha” e pontos no mapa |
+| `/api/route-stops?itinerary=` | `buscarParadasPorItiComCoordenadas/{iti}/0` | Paradas do itinerário no mapa do CCO |
+| `/api/notices` | `V3/buscarNotificacao/{cidade}` (`cod`, `assunto`, `evento`) | Card “Avisos oficiais” |
+| `/api/notices/stop?stop=` | `V3/verificaNotificacaoParada/{parada}/{cidade}` | Aviso dentro do ponto aberto |
+
+- A posição do passageiro é **arredondada a ~100 m no aparelho** e de novo no Worker antes de ir ao SIU; fora da região atendida o Worker nem consulta.
+- Avisos são exibidos **sempre como texto** (o APK original os insere como HTML).
+- `/api/diagnostics/siu?kind=nearby|routeStops|notices|stopNotices` mostra o formato cru dessas consultas para conferência após o deploy; aceita só essa lista fechada.
+- **Fora do FeiraBus, de propósito:** botão de pânico (`emiteAlarmePanico`, `buscarAlarmesPanico`), alarme de desembarque PNE (`emiteAlarmeDesembarquePNE`), consulta de cartão PNE (`pesquisaCartaoPNE`), favoritos do servidor e chamados PCD. Disparam ações reais ou envolvem dados pessoais; `test-ui.mjs` falha se algum aparecer no código.
