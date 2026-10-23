@@ -1,7 +1,7 @@
 "use strict";
 (()=>{
 const id=name=>document.getElementById(name);
-const state={lines:[],schedule:[],variants:[],latestRequest:0,installPrompt:null};
+const state={lines:[],schedule:[],variants:[],latestRequest:0,installPrompt:null,origins:[],origin:null,stopsRequest:0,openStop:null};
 const API_TIMEOUT=55000;
 function feedback(text,error=false){
  id("feedback").textContent=text;
@@ -40,6 +40,7 @@ function dayMatches(label){
  if(weekday===6)return /sabado/.test(v);
  return /util|segunda.*sexta/.test(v);
 }
+function plain(text){return String(text??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();}
 function minutes(time){
  const m=String(time).match(/^(\d{1,2}):(\d{2})/);
  if(!m)return -1;
@@ -60,7 +61,7 @@ function renderLineChoices(){
 }
 async function selectLine(){
  const line=id("lineSelect").value,token=++state.latestRequest;
- if(!line){id("variantSelect").replaceChildren();showSchedule([]);return;}
+ if(!line){id("variantSelect").replaceChildren();state.schedule=[];renderSchedule();resetStops("Selecione uma linha em 01 para ver as origens.");return;}
  id("connection").textContent="Consultando linhas e sentidos...";
  state.schedule=[];
  id("variantSelect").replaceChildren();
@@ -82,7 +83,7 @@ async function selectLine(){
   opt.value=v.id;select.append(opt);
  }
  try{localStorage.setItem("feirabus-passenger-last-line",line);}catch{}
- if(variants.length)await loadSchedule();else feedback("Nenhum código válido para consultar o horário.",true);
+ if(variants.length)await loadVariant();else feedback("Nenhum código válido para consultar o horário.",true);
 }
 async function loadSchedule(){
  const code=id("variantSelect").value,token=++state.latestRequest;
@@ -102,6 +103,7 @@ async function loadSchedule(){
   if(days.includes(former))day.value=former;
   else {const guess=days.find(dayMatches);if(guess)day.value=guess;}
   renderSchedule();
+  renderOriginInfo();
   feedback(state.schedule.length?state.schedule.length+" partidas programadas encontradas no SIU. Selecione o tipo de dia correto.":"O SIU não forneceu horários cadastrados para esta linha.");
  }catch(e){
   state.schedule=[];renderSchedule();
@@ -128,6 +130,29 @@ function renderSchedule(){
   "Tipo de dia selecionado manualmente; os horários exibidos são apenas partidas previstas.")+
   " Não é possível inferir atraso do ônibus sem vincular a viagem à observação da operação.";
 }
+function selectedLineNumber(){
+ const code=id("variantSelect").value;
+ const v=state.variants.find(x=>String(x.id)===code)||state.lines.find(x=>String(x.id)===id("lineSelect").value);
+ return plain(v?.numero);
+}
+function renderPredictions(output,list){
+ output.replaceChildren();
+ const mine=selectedLineNumber();
+ const entries=(list||[]).filter(x=>x.linha&&x.linha!=="Sem Dados").slice(0,50)
+  .map(row=>({row,match:!!mine&&plain(row.linha)===mine}))
+  .sort((a,b)=>Number(b.match)-Number(a.match));
+ if(!entries.length){output.append(make("div","empty","Não há previsão para esta parada no momento."));return 0;}
+ for(const {row,match} of entries){
+  const item=make("div","result"+(match?" match":""));
+  const title=make("strong",null,"Linha "+row.linha);
+  if(match)title.append(make("span","badge","Esta linha"));
+  item.append(title);
+  item.append(make("span","eta",row.previsao||"Sem tempo informado"));
+  item.append(make("span",null,[row.destino,row.carro?"Carro "+row.carro:null].filter(Boolean).join(" · ")));
+  output.append(item);
+ }
+ return entries.length;
+}
 async function getStop(){
  const code=id("stopCode").value.trim(),output=id("predictions");
  if(!/^\d{1,15}$/.test(code)){feedback("Informe um código numérico válido de parada.",true);return;}
@@ -135,20 +160,136 @@ async function getStop(){
  const b=id("checkStop");b.disabled=true;
  try{
   const d=await api("/api/predictions?stop="+code);
-  output.replaceChildren();
-  const entries=(d.previsoes||[]).filter(x=>x.linha&&x.linha!=="Sem Dados").slice(0,50);
-  if(!entries.length)output.append(make("div","empty","Não há previsão para esta parada no momento."));
-  for(const row of entries){
-   const item=make("div","result");
-   item.append(make("strong",null,"Linha "+row.linha));
-   item.append(make("span","eta",row.previsao||"Sem tempo informado"));
-   item.append(make("span",null,[row.destino,row.carro?"Carro "+row.carro:null].filter(Boolean).join(" · ")));
-   output.append(item);
-  }
+  renderPredictions(output,d.previsoes);
   try{localStorage.setItem("feirabus-passenger-last-stop",code);}catch{}
   feedback("Previsões da parada "+code+" consultadas no SIU.");
  }catch(e){output.replaceChildren(make("div","empty",e.message));feedback("Falha na previsão: "+e.message,true);}
  finally{b.disabled=false;}
+}
+function resetStops(message){
+ state.stopsRequest++;state.origins=[];state.origin=null;state.openStop=null;
+ id("originTabs").replaceChildren();
+ id("originInfo").hidden=true;
+ id("stopList").replaceChildren(make("li","empty","Os pontos de cada origem aparecerão aqui."));
+ id("stopsMeta").textContent=message;
+ id("refreshStops").disabled=!validCode(id("variantSelect").value);
+}
+// O SIU devolve cada ponto com o sentido da viagem; esse sentido coincide
+// com a "origem" do quadro de horários (ex.: BAIRRO, TERMINAL CENTRAL).
+function groupStops(paradas){
+ const groups=new Map();
+ for(const p of paradas||[]){
+  if(!/^\d{1,15}$/.test(String(p?.id??"")))continue;
+  const label=String(p.sentido||"").trim()||"Sentido não informado";
+  const key=plain(label);
+  if(!groups.has(key))groups.set(key,{key,label,stops:[],seen:new Set()});
+  const g=groups.get(key);
+  if(!g.seen.has(p.id)){g.seen.add(p.id);g.stops.push(String(p.id));}
+ }
+ return [...groups.values()].map(({seen,...g})=>g);
+}
+async function loadStops(){
+ const code=id("variantSelect").value;
+ if(!validCode(code)){resetStops("Selecione uma linha em 01 para ver as origens.");return;}
+ const token=++state.stopsRequest;
+ const previous=state.origin;
+ state.origins=[];state.origin=null;state.openStop=null;
+ id("originTabs").replaceChildren();id("originInfo").hidden=true;
+ id("stopList").replaceChildren(make("li","empty","Consultando pontos da linha no SIU…"));
+ id("stopsMeta").textContent="Carregando origens da linha…";
+ const button=id("refreshStops");button.disabled=true;
+ try{
+  const data=await api("/api/stops?line="+encodeURIComponent(code));
+  if(token!==state.stopsRequest)return;
+  state.origins=groupStops(data.paradas);
+  if(!state.origins.length){resetStops("O SIU não informou pontos para esta linha.");return;}
+  const total=state.origins.reduce((n,g)=>n+g.stops.length,0);
+  id("stopsMeta").textContent=state.origins.length+(state.origins.length===1?" origem · ":" origens · ")+total+" pontos";
+  renderOriginTabs();
+  selectOrigin(state.origins.some(g=>g.key===previous)?previous:state.origins[0].key);
+ }catch(e){
+  if(token!==state.stopsRequest)return;
+  id("stopList").replaceChildren(make("li","empty","Falha ao consultar pontos: "+e.message));
+  id("stopsMeta").textContent="Pontos indisponíveis no momento.";
+ }finally{if(token===state.stopsRequest)button.disabled=false;}
+}
+function renderOriginTabs(){
+ const box=id("originTabs");box.replaceChildren();
+ for(const g of state.origins){
+  const tab=make("button","origin-tab");
+  tab.type="button";tab.setAttribute("role","tab");tab.dataset.origin=g.key;
+  tab.setAttribute("aria-controls","stopList");
+  tab.append(make("small",null,"ORIGEM"),make("strong",null,g.label),make("span",null,g.stops.length+(g.stops.length===1?" ponto":" pontos")));
+  tab.addEventListener("click",()=>selectOrigin(g.key));
+  box.append(tab);
+ }
+}
+function selectOrigin(key){
+ const group=state.origins.find(g=>g.key===key);
+ if(!group)return;
+ state.origin=key;state.openStop=null;
+ for(const tab of id("originTabs").children){
+  const on=tab.dataset.origin===key;
+  tab.setAttribute("aria-selected",String(on));tab.tabIndex=on?0:-1;
+ }
+ const list=id("stopList");list.replaceChildren();
+ list.setAttribute("aria-label","Pontos da origem "+group.label);
+ group.stops.forEach((stop,i)=>{
+  const li=make("li","stop");
+  const row=make("button","stop-row");
+  row.type="button";row.dataset.seq=String(i+1);row.setAttribute("aria-expanded","false");
+  const name=make("span","stop-name","Ponto "+stop);
+  name.append(make("small",null,i===0?"Primeiro ponto da origem":i===group.stops.length-1?"Último ponto da origem":(i+1)+"º ponto"));
+  row.append(name,make("span","stop-go","VER PREVISÃO ›"));
+  const panel=make("div","stop-panel");panel.hidden=true;panel.id="stop-panel-"+stop+"-"+i;
+  row.setAttribute("aria-controls",panel.id);
+  row.addEventListener("click",()=>toggleStop(stop,row,panel));
+  li.append(row,panel);list.append(li);
+ });
+ renderOriginInfo();
+}
+function renderOriginInfo(){
+ const box=id("originInfo"),group=state.origins.find(g=>g.key===state.origin);
+ if(!group){box.hidden=true;return;}
+ const now=liveClock();
+ const next=state.schedule
+  .filter(x=>plain(x.origem)===group.key&&dayMatches(x.tipoDia)&&now!==null&&minutes(x.horario)>=now)
+  .sort((a,b)=>minutes(a.horario)-minutes(b.horario))[0];
+ box.replaceChildren();
+ box.append("Origem: ",make("b",null,group.label));
+ box.append(next?make("span",null," · próxima partida programada hoje às "):make("span",null," · sem partida programada restante hoje no quadro carregado"));
+ if(next)box.append(make("b",null,next.horario.slice(0,5)));
+ box.hidden=false;
+}
+async function toggleStop(stop,row,panel){
+ if(row.getAttribute("aria-expanded")==="true"){
+  row.setAttribute("aria-expanded","false");panel.hidden=true;state.openStop=null;
+  row.querySelector(".stop-go").textContent="VER PREVISÃO ›";
+  return;
+ }
+ for(const other of id("stopList").querySelectorAll('.stop-row[aria-expanded="true"]')){
+  other.setAttribute("aria-expanded","false");
+  other.querySelector(".stop-go").textContent="VER PREVISÃO ›";
+  document.getElementById(other.getAttribute("aria-controls")).hidden=true;
+ }
+ const token=Symbol(stop);state.openStop=token;
+ row.setAttribute("aria-expanded","true");panel.hidden=false;
+ row.querySelector(".stop-go").textContent="FECHAR";
+ panel.replaceChildren(make("div","empty","Consultando previsões do SIU…"));
+ try{
+  const d=await api("/api/predictions?stop="+encodeURIComponent(stop));
+  if(state.openStop!==token)return;
+  const count=renderPredictions(panel,d.previsoes);
+  feedback(count?"Previsões do ponto "+stop+" consultadas no SIU.":"O SIU não informou previsão para o ponto "+stop+" agora.");
+ }catch(e){
+  if(state.openStop!==token)return;
+  panel.replaceChildren(make("div","empty",e.message));
+  feedback("Falha na previsão: "+e.message,true);
+ }
+}
+async function loadVariant(){
+ resetStops("Carregando origens da linha…");
+ await Promise.all([loadSchedule(),loadStops()]);
 }
 function makeFleetLink(link){
  const a=make("a",null,link.label);
@@ -195,10 +336,18 @@ id("install").addEventListener("click",async()=>{
 });
 id("lineFilter").addEventListener("input",renderLineChoices);
 id("lineSelect").addEventListener("change",selectLine);
-id("variantSelect").addEventListener("change",loadSchedule);
+id("variantSelect").addEventListener("change",loadVariant);
+id("refreshStops").addEventListener("click",loadStops);
 id("daySelect").addEventListener("change",renderSchedule);
 id("refreshSchedule").addEventListener("click",loadSchedule);
 id("checkStop").addEventListener("click",getStop);
+id("originTabs").addEventListener("keydown",e=>{
+ if(!["ArrowLeft","ArrowRight"].includes(e.key)||!state.origins.length)return;
+ const i=state.origins.findIndex(g=>g.key===state.origin);
+ const next=state.origins[(i+(e.key==="ArrowRight"?1:-1)+state.origins.length)%state.origins.length];
+ selectOrigin(next.key);
+ id("originTabs").querySelector('[data-origin="'+CSS.escape(next.key)+'"]')?.focus();
+});
 id("checkVehicle").addEventListener("click",getVehicle);
 for(const [input,run] of [["stopCode",getStop],["vehicleCode",getVehicle]]){
  id(input).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();run();}});
