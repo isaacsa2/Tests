@@ -79,3 +79,17 @@ assert.ok(!passengerJS.includes("showSchedule("),"Regressão: função inexisten
 assert.ok(passengerCss.includes("@media(min-width:1024px)")&&passengerCss.includes("@media(min-width:700px)"),"Layout PC/celular ausente");
 assert.ok(serviceWorker.includes('"feirabus-passenger-v2"'),"Cache do PWA precisa nova versão após mudar a interface");
 console.log("OK: passageiro com origens, pontos e layout responsivo.");
+
+// CCO: modo celular por abas e filtro "GPS por linha".
+for(const name of ["lineWatch","lineWatchGo","lineWatchChips","lineWatchState","detalhe"])assert.ok(ids.includes(name),"Campo do filtro de linhas faltando: "+name);
+for(const view of ["geral","mapa","frota","eventos","ajustes"]){
+ assert.ok(html.includes('data-view="'+view+'"'),"Aba celular sem link: "+view);
+ assert.ok(html.includes('data-mview="'+view+'"'),"Aba celular sem conteúdo: "+view);
+ assert.ok(css.includes('body.m-views:not([data-view="'+view+'"]) [data-mview="'+view+'"]'),"Aba celular não oculta as outras áreas: "+view);
+}
+for(const name of [...app.matchAll(/\bel\("([^"]+)"\)/g)].map(m=>m[1]))
+ assert.ok(ids.includes(name)||name.startsWith("detail-"),"app.js usa id inexistente: "+name);
+assert.ok(app.includes("function searchLines()")&&app.includes("function gpsPool()")&&app.includes("GPS.chooseRoutes(gpsPool().values()"),"GPS automático não respeita o filtro de linhas");
+assert.ok(app.includes("slice(0,24)"),"Busca por linha precisa limite de itinerários por rodada");
+assert.ok(app.includes("if(!map.getSize().x){pendingFit=true;return;}"),"Regressão: enquadrar mapa oculto vai para zoom mundial");
+console.log("OK: CCO celular por abas e GPS por linha.");
