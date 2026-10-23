@@ -1,0 +1,15 @@
+{
+  "name": "feirabus-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dashboard Cloudflare Workers SIU Feira de Santana",
+  "scripts": {
+    "test": "node --check src/worker.js && node --check public/assets/app.js && node test-worker.mjs",
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

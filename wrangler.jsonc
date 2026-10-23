@@ -1,0 +1,18 @@
+{
+  "name": "feiradesantana",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-23",
+  "compatibility_flags": [
+    "allow_custom_ports"
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "vars": {
+    "FSA_SIU_CITY": "null"
+  }
+}

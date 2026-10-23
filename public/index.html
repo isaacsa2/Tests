@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FeiraBus • Monitor de ônibus de Feira de Santana</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoB6xZaSzbgwRpk=" crossorigin="">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header><div class="logo">F<span>●</span> FeiraBus <small>MONITOR</small></div><span class="city">Feira de Santana · Bahia</span></header>
+<main>
+<section class="intro"><div><p class="eyebrow">PAINEL DE TRANSPORTE • PESQUISA INDEPENDENTE</p><h1>Ônibus no mapa.<br><em>A cidade inteira.</em></h1><p>Consulte as linhas disponíveis no SIU, acompanhe os carros encontrados e pesquise diretamente pelo número de um veículo.</p></div><div class="pill" id="stateTag">MODO DEMONSTRAÇÃO</div></section>
+<section class="bar" aria-label="Monitoramento">
+<button id="start" class="primary">Varrer linhas da cidade</button>
+<button id="stop" disabled>Interromper</button>
+<label class="toggle"><input id="wide" type="checkbox" checked> Varredura ampliada de todas as paradas</label>
+<label class="toggle"><input id="poll" type="checkbox"> Atualizar GPS ao concluir</label>
+<button id="export">Exportar itinerários (GeoJSON)</button>
+</section>
+<p class="notice" id="notice" role="status">Os marcadores iniciais são fictícios. A varredura só começa quando você clicar em iniciar. O serviço externo ainda não foi validado.</p>
+<div class="metrics"><article><span>CARROS LOCALIZADOS</span><strong id="totalCars">3</strong><small>Não equivale ao tamanho total da frota</small></article><article><span>LINHAS DISPONÍVEIS</span><strong id="totalLines">—</strong><small>Conforme resposta do SIU</small></article><article><span>ITINERÁRIOS DESCOBERTOS</span><strong id="totalRoutes">—</strong><small>Extraídos das previsões</small></article><article><span>COBERTURA</span><strong id="coverage">—</strong><small id="stage">Aguardando consulta real</small></article></div>
+<div class="workspace">
+<aside class="panel side">
+<h2>Encontrar ônibus</h2>
+<label for="busSearch">Pesquisar nos carros/linhas já carregados</label>
+<input id="busSearch" type="search" placeholder="Número do carro ou da linha">
+<label for="directNumber">Pesquisar carro diretamente na API</label>
+<div class="find"><input id="directNumber" type="search" placeholder="Ex.: 400" inputmode="numeric"><button id="direct" class="primary">Localizar</button></div>
+<p class="hint" id="directResult">A consulta direta também pode encontrar carros fora das linhas carregadas.</p>
+<div class="list-head"><b id="listTitle">Veículos</b><span id="listCount">3</span></div>
+<div class="list" id="vehicleList"></div>
+</aside>
+<section class="panel mapPanel"><div class="mapHead"><div><h2>Mapa de Feira de Santana</h2><small id="mapInfo">Marcadores de demonstração (não reais)</small></div><button id="fit">Enquadrar veículos</button></div><div id="map"></div><div class="legend">● Azul: veículo localizado · Cinza: sem atualização recente · Trajetos obtidos sob demanda</div></section>
+</div>
+<p class="disclaimer">A varredura percorre linhas e paradas que o SIU disponibilizar, de forma sequencial e com cache. Carros inativos ou não expostos pela API podem não aparecer. A hora exibida é da consulta, não necessariamente da leitura GPS. Dados e rotas reais mantêm escala geográfica; 1:2 será aplicado apenas na conversão para OMSI.</p>
+</main>
+<footer>Protótipo independente, não afiliado à TACOM nem à Prefeitura. © Dados cartográficos: <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Não publique informações sensíveis.</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<script src="/assets/app.js" defer></script>
+</body></html>
