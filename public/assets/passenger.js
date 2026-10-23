@@ -18,7 +18,11 @@ async function api(path){
  try{
   const res=await fetch(path,{signal:control.signal,cache:"no-store"});
   const data=await res.json();
-  if(!res.ok)throw new Error(data.erro||"HTTP "+res.status);
+  if(!res.ok){
+   if(res.status===404 && path.startsWith("/api/schedule"))
+     throw new Error("A API de horarios ainda nao foi publicada no Worker. Confira /api/status: versao siu-timetable-hotfix-v4.");
+   throw new Error(data.erro||"HTTP "+res.status);
+  }
   return data;
  }finally{clearTimeout(timer);}
 }

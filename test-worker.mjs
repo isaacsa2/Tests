@@ -15,6 +15,12 @@ globalThis.fetch=async function(url){
   lineMode===3?["{'cod':'12','sgl':'001','nom':'Centro'},{'cod':'13','sgl':'002','nom':'Tomba'}"]:
   ["indecifravel"];}
  else if(u.includes("/buscarParametrosIniciais/")){d.parametrosIniciais=[];}
+ else if(u.includes("/V3/retornaQroLinha/")){d.qros=[
+  {cod:"1",origem:"Terminal Central",tipoDia:"Dia util",horario:"06:20"},
+  {cod:"1",origem:"Terminal Central",tipoDia:"Sabado",horario:"07:10"},
+  {cod:"Sem Dados",origem:"",tipoDia:"",horario:""},
+  {cod:"1",origem:"Terminal Central",tipoDia:"Dia util",horario:"99:99"}
+ ];}
  else if(u.includes("/retornaSublinhasDaLinha/")){d.subLinhas=[{cod:"120",sgl:"001A",nom:"Variante"}];}
  else if(u.includes("/buscarParadasPorLinha/")){d.paradas=[{cod:"315",sent:"Centro"}];}
  else if(u.includes("/buscarPrevisoes/")){d.previsoes=[{codItinerario:"90",sgLin:"001",numVeicGestor:"400",prev:"5 min",apelidoLinha:"Terminal Central"}];}
@@ -55,6 +61,16 @@ assert.equal(data.diagnostico.elementosBrutos,1);
 assert.equal(data.diagnostico.catalogoVazioConfirmado,false);
 lineMode=0;cache.clear();
 [,data]=await get("/api/sublines?line=12");assert.equal(data.sublinhas[0].id,"120");
+let [scCode,sc]=await get("/api/schedule?line=12");
+assert.equal(scCode,200,"/api/schedule deve existir no Worker");
+assert.equal(sc.linha,"12");
+assert.equal(sc.horarios.length,2);
+assert.deepEqual(sc.horarios[0],{origem:"Terminal Central",tipoDia:"Dia util",horario:"06:20"});
+assert.equal(sc.pontualidade,"nao-aferida");
+assert.ok(requests.some(s=>s.includes("/V3/retornaQroLinha/12/0/null/retornoJSON")));
+assert.equal((await get("/api/schedule?line=../../admin"))[0],400);
+const [,caps]=await get("/api/status");assert.ok(caps.recursos.includes("schedule"));
+
 [,data]=await get("/api/stops?line=12");assert.equal(data.paradas[0].id,"315");
 assert.ok(requests.some(x=>x.includes("V3/buscarParadasPorLinha/12/0/null/retornoJSON")));
 [,data]=await get("/api/predictions?stop=315");assert.equal(data.previsoes[0].itinerario,"90");assert.equal(data.previsoes[0].previsao,"5 min");

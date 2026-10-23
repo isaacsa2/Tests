@@ -144,7 +144,7 @@ function vehicle(x,route,idOverride){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-siu-legacy-catalog-v3",worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-siu-timetable-hotfix-v4",recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/initialize"){
     // O app FSA chama este endpoint ao abrir pela primeira vez. Retornamos
     // apenas o diagnóstico: parâmetros internos do operador não são publicados.
@@ -165,6 +165,22 @@ async function action(url,env,ctx){
   if(p==="/api/sublines"){
     const n=ident(q.get("line")),d=await upstream("V3/retornaSublinhasDaLinha/"+n+"/0/"+city+"/retornoSublinhasJSON","retornoSublinhasJSON",21600,ctx);
     return {sublinhas:success(d)?array(d.subLinhas).filter(x=>x?.cod!=null).map(x=>({id:String(x.cod),numero:String(x.sgl??""),nome:String(x.nom??"")})):[]};
+  }
+  if(p==="/api/schedule"){
+    // API reproduzida do APK: assets/www/retornaQroLinha.html, funcao iniciar().
+    const n=ident(q.get("line"));
+    const d=await upstream("V3/retornaQroLinha/"+n+"/0/"+city+"/retornoJSON","retornoJSON",1800,ctx);
+    if(!success(d))throw bad("SIU nao confirmou o quadro de horarios desta linha",502);
+    const horarios=array(d?.qros).filter(x=>x&&typeof x==="object"&&x.cod!=="Sem Dados")
+      .slice(0,2500).map(x=>({
+        origem:String(x.origem??"").slice(0,120),
+        tipoDia:String(x.tipoDia??"").slice(0,80),
+        horario:String(x.horario??"").slice(0,15)
+      })).filter(x=>{
+        const m=x.horario.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+        return m&&Number(m[1])<24&&Number(m[2])<60;
+      });
+    return {linha:n,horarios,fonte:"SIU Mobile - quadro de partidas programadas",pontualidade:"nao-aferida"};
   }
   if(p==="/api/stops"){
     const n=ident(q.get("line"));let d;
