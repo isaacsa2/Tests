@@ -221,3 +221,11 @@ Os itinerários são extraídos da memória compartilhada `fb_routes` existente,
 O endpoint de embarque `retornaVeiculoEmbarcado` do SIU Mobile **não é um catálogo universal da frota**: o APK só o invoca quando o passageiro usa o fluxo especial após embarcar. O mapa comum utiliza `V3/retornaVeiculosMapa/{codItinerario}/0/{cidade}/retornoJSONVeiculos`. Por isso o app não deve mostrar “o carro não existe” após apenas uma consulta direta vazia.
 
 A pesquisa no Ônibus Brasil abre páginas de referências e não copia fotografias, faz scraping automático ou disponibiliza dados em massa para terceiros. Para novas confirmações de frota, atualize com fonte verificável e data da observação.
+
+
+## Sincronização em lotes de 10 e 15 (outubro de 2026)
+
+- **CCO / GPS:** cada rodada consulta em sequência até **10 itinerários** (15, 30 ou 60 segundos como intervalo configurável **entre rodadas**, após completar a anterior). Continua priorizando o veículo selecionado e itinerários conhecidos. O equipamento do ônibus e o SIU podem atualizar a telemetria mais lentamente; não equivale a posição nova a cada rodada. As gravações na D1 seguem desaceleradas por veículo.
+- **FeiraBus Passageiro:** na aba Paradas, depois de selecionar linha e origem, o botão **Sincronizar 15 pontos** faz até 15 consultas de previsões **sequenciais** por rodada. Exibe progresso/quantidade consultada, pausa ao ocultar a aba e permite retomar pelo botão (próximos 15). Não informa nem estima quantidade de pessoas dentro do ônibus: são 15 **pontos de parada** por lote.
+- **Nomes oficiais das paradas:** a API `/api/stops?line=...` agora devolve `nome` a partir de `dt.end`, `sentido` de `dt.sent` e `codigoSIU` de `dt.siu` (conforme `retornaParadas.html` do APK). O app exibe `nome` e código separadamente. Quando o SIU não fornece nome, aparece `Ponto <código>`, sem inventar endereço.
+- Nenhum endpoint retorna total de passageiros embarcados: esse dado não está confirmado na API SIU examinada. As consultas são limitadas e não realizadas em segundo plano com a página fechada.

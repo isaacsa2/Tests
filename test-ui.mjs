@@ -60,7 +60,12 @@ assert.ok(html.includes('/assets/gps-polling.js'),"GPS scheduler not loaded befo
 assert.ok(app.includes("GPS.chooseRoutes(")&&app.includes("function startGpsPolling()"),"Bounded GPS refresh missing");
 assert.ok(app.includes("Date.parse(String(v.consultadoEm"),"GPS must distinguish SIU query age from rendering time");
 assert.ok(!app.includes("for(const id of s.routes){if(!s.poll)break;"),"Regression: unlimited full fleet refresh");
-assert.ok(gpsSource.includes("routeBatch:2")&&gpsSource.includes("routeBatch:4"),"Expected per-cycle query limits missing");
+assert.equal((gpsSource.match(/routeBatch:10/g)||[]).length,3,"GPS 15/30/60 modes must all use 10 per batch");
+assert.ok(gpsSource.includes('Math.floor(batch)),10)'),"GPS cap must be 10");
+assert.ok(passenger.includes('id="sync15Stops"')&&passenger.includes('id="stopBatchStatus"'),"Passenger stop batch UI missing");
+assert.ok(passengerJS.includes('async function syncNext15Stops()')&&passengerJS.includes('slice(start,start+15)'),"Passenger stop predictions must use 15 per batch");
+assert.ok(passengerJS.includes('stop.nome||"Ponto "+stop.id'),"Passenger must show official stop name or explicit fallback");
+assert.ok(workerSource.includes('nome:String(x.end??x.desc??"")'),"Worker must return SIU stop name from the end field");
 assert.ok(workerSource.includes('"retornoJSONVeiculos",12,ctx')&&workerSource.includes('"retornoJSONVeiculos",20,ctx'),"Cache TTLs too slow for focus poll");
 
 assert.ok(app.includes('function hydrateSharedMemory()')&&app.includes('/api/memory/snapshot'),"CCO sem importação da memória D1");
@@ -78,7 +83,7 @@ for(const name of [...passengerJS.matchAll(/\bid\("([^"]+)"\)/g)].map(m=>m[1]))
 assert.ok(passengerJS.includes("/api/stops?line=")&&passengerJS.includes("function groupStops(")&&passengerJS.includes("function selectOrigin("),"Paradas por origem ausentes");
 assert.ok(!passengerJS.includes("showSchedule("),"Regressão: função inexistente ao limpar a linha");
 assert.ok(passengerCss.includes("@media(min-width:1024px)")&&passengerCss.includes("@media(min-width:700px)"),"Layout PC/celular ausente");
-assert.ok(serviceWorker.includes('"feirabus-passenger-v2"'),"Cache do PWA precisa nova versão após mudar a interface");
+assert.ok(serviceWorker.includes('"feirabus-passenger-v3"'),"Cache do PWA precisa nova versão após mudar a interface");
 console.log("OK: passageiro com origens, pontos e layout responsivo.");
 
 // CCO: modo celular por abas e filtro "GPS por linha".

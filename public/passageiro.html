@@ -49,6 +49,10 @@
   <div class="stops-top"><span id="stopsMeta" class="stops-meta">Selecione uma linha em 01 para ver as origens.</span><button id="refreshStops" type="button" class="button button-outline button-small" disabled>↻ Pontos</button></div>
   <div id="originTabs" class="origin-tabs" role="tablist" aria-label="Origens da linha"></div>
   <div id="originInfo" class="origin-info" hidden></div>
+  <div class="stops-batch-controls">
+   <button id="sync15Stops" type="button" class="button button-outline button-small" disabled>↻ Sincronizar 15 pontos</button>
+   <small id="stopBatchStatus" role="status" aria-live="polite">Selecione uma origem para consultar previsões em lotes de 15.</small>
+  </div>
   <ol id="stopList" class="stop-list"><li class="empty">Os pontos de cada origem aparecerão aqui.</li></ol>
   <details class="manual-stop">
    <summary>Já sabe o código do ponto?</summary>
@@ -56,7 +60,7 @@
    <div class="query-row"><input id="stopCode" inputmode="numeric" type="text" placeholder="Digite o código do ponto"><button id="checkStop" type="button" class="button button-main">Consultar</button></div>
    <div id="predictions" class="results"><div class="empty">Nenhuma parada consultada.</div></div>
   </details>
-  <p class="note">A ordem dos pontos é a informada pelo SIU. As previsões representam a estimativa do SIU, não um registro de pontualidade comprovada.</p>
+  <p class="note">Os nomes das paradas vêm do SIU, quando disponíveis. A sincronização consulta até 15 pontos sequencialmente, sem contagem real de passageiros. As previsões representam a estimativa do SIU, não um registro de pontualidade comprovada.</p>
  </section>
  <section class="card accent-green wide" id="frota">
   <div class="section-header"><div class="section-num">03</div><div><div class="section-id">03 / FROTA</div><h2>Pesquisar ônibus</h2><p>Localize o carro no SIU e consulte o acervo histórico do Ônibus Brasil.</p></div></div>
