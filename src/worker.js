@@ -1,4 +1,4 @@
-import {HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus} from "./d1-memory.js";
+import {HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus,lookupVehicle,listSearchRoutes} from "./d1-memory.js";
 // FeiraBus: gateway fixo do SIU. Respostas do servidor real ainda precisam ser validadas.
 const BASE = "http://fsa.siumobile.com.br:6060/siumobile-ws-v01/rest/ws/";
 const BOUNDS = {minLat:-13.2,maxLat:-11.7,minLon:-39.8,maxLon:-38.3};
@@ -281,12 +281,73 @@ async function action(url,env,ctx){
     return {veiculos,itinerario:n};
   }
   if(p==="/api/vehicle"){
-    const n=ident(q.get("number")),d=await upstream("retornaVeiculoEmbarcado/"+n+"/retornoJSONVeiculos","retornoJSONVeiculos",12,ctx);
-    const raw=array(d.veiculos);
-    if(!raw.length&&d.veiculo&&typeof d.veiculo==="object")raw.push(d.veiculo);
-    const veiculos=success(d)?raw.map(x=>vehicle(x,null,n,d._siuFetchedAt)).filter(x=>x?.id===n):[];
-    if(veiculos.length)remember(env,ctx,db=>saveVehicles(db,veiculos));
-    return {veiculos,numeroConsultado:n};
+    const n=ident(q.get("number"));
+    // Este endpoint é usado pelo aplicativo original depois do embarque,
+    // portanto NÃO é um índice confiável para todos os prefixos da frota.
+    let directError=null,veiculos=[];
+    try{
+      const d=await upstream("retornaVeiculoEmbarcado/"+n+"/retornoJSONVeiculos","retornoJSONVeiculos",12,ctx);
+      if(success(d)){
+        const raw=array(d.veiculos);
+        if(!raw.length&&d.veiculo&&typeof d.veiculo==="object")raw.push(d.veiculo);
+        // Não inventar prefixo a partir do parâmetro: resposta de embarque
+        // frequentemente não informa numVeicGestor, logo não é confirmação.
+        veiculos=raw.filter(x=>String(x?.numVeicGestor??"").trim()===n)
+          .map(x=>vehicle(x,null,null,d._siuFetchedAt))
+          .filter(x=>x?.id===n);
+      }
+    }catch(e){directError=String(e?.message||e).slice(0,130);}
+    if(veiculos.length){
+      for(const v of veiculos){v.origem="siu_embarque";v.historico=false;}
+      remember(env,ctx,db=>saveVehicles(db,veiculos));
+      return {veiculos,numeroConsultado:n,origem:"siu_embarque",historico:false};
+    }
+    // A memória de frota já alimentada pelo CCO pode conhecer a última
+    // posição, mesmo quando o fluxo especial de embarque volta vazio.
+    if(HAS_DB(env)){
+      try{
+        const old=await lookupVehicle(env.FEIRABUS_DB,n);
+        if(old)return {veiculos:[old],numeroConsultado:n,origem:"d1",historico:true,
+          aviso:"Última posição registrada no SIU; não representa GPS ao vivo."};
+      }catch(e){console.warn("Consulta histórica D1:",String(e?.message||e).slice(0,130));}
+    }
+    return {veiculos:[],numeroConsultado:n,origem:"nao_localizado",
+      aviso:"A consulta de embarque não localizou o prefixo. Use a busca por itinerários.",
+      ...(directError?{erroConsultaDireta:directError}:{})};
+  }
+  if(p==="/api/vehicle/search"){
+    // Busca explícita do usuário: no máximo 3 itinerários SIU por chamada,
+    // sem varredura automática de 83 itinerários nem novos custos D1 em massa.
+    const n=ident(q.get("number"));
+    if(!/^\d{2,8}$/.test(n))throw bad("Prefixo numérico inválido",400);
+    if(!HAS_DB(env))throw bad("Memória D1 indisponível para descoberta de itinerários",503);
+    const cursorValue=q.get("cursor")??"0";
+    if(!/^\d{1,3}$/.test(cursorValue))throw bad("Cursor inválido",400);
+    const cursor=Number(cursorValue);
+    if(cursor>200)throw bad("Cursor fora dos limites",400);
+    const routes=await cachedSharedRead("known-routes",300,()=>listSearchRoutes(env.FEIRABUS_DB),ctx);
+    const batch=routes.slice(cursor,cursor+3);
+    let located=null,failures=0;
+    for(const routeId of batch){
+      try{
+        const d=await upstream("V3/retornaVeiculosMapa/"+routeId+"/0/"+city+"/retornoJSONVeiculos","retornoJSONVeiculos",20,ctx);
+        if(!success(d)){failures++;continue;}
+        const matches=array(d.veiculos).map(x=>vehicle(x,routeId,null,d._siuFetchedAt))
+          .filter(v=>v?.id===n);
+        if(matches.length){
+          located={...matches[0],origem:"siu_itinerario",historico:false};
+          remember(env,ctx,db=>saveVehicles(db,[located],routeId));
+          break;
+        }
+      }catch(e){failures++;}
+    }
+    const nextCursor=Math.min(routes.length,cursor+batch.length);
+    return {numeroConsultado:n,veiculos:located?[located]:[],
+      origem:located?"siu_itinerario":"nao_localizado",
+      cursor,nextCursor,totalItinerarios:routes.length,consultados:batch.length,
+      concluido:!!located||nextCursor>=routes.length,erros:failures,
+      aviso:located?"Carro localizado no mapa de itinerários do SIU.":
+       "Ainda não encontrado nos itinerários examinados; isso não indica que o veículo esteja fora de serviço."};
   }
   if(p==="/api/geometry"){
     const n=ident(q.get("itinerary")),d=await upstream("V3/buscarItinerario/"+n+"/0/"+city+"/retornoJSONItinerario","retornoJSONItinerario",86400,ctx);

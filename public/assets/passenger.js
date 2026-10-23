@@ -296,33 +296,100 @@ function makeFleetLink(link){
  a.href=link.url;a.target="_blank";a.rel="noopener noreferrer";
  return a;
 }
+let fleetSearch=null;
+function addBusMap(box,v,history){
+ const time=String(v.consultadoEm||"");
+ const dt=Date.parse(time);
+ const label=Number.isFinite(dt)?new Date(dt).toLocaleString("pt-BR"):"horário indisponível";
+ box.append(make("span",null,history?
+  "POSIÇÃO HISTÓRICA (D1) · Última consulta SIU: "+label+". Não representa GPS ao vivo.":
+  "ENCONTRADO NO SIU · Consulta: "+label+". O horário original do equipamento GPS pode ser anterior."));
+ box.append(make("span",null,"Linha: "+(v.linha||"não informada")+
+  (v.itinerario?" · Itinerário "+v.itinerario:"")));
+ if(Number.isFinite(v.lat)&&Number.isFinite(v.lon)){
+  const a=make("a",null,"Abrir última posição no OpenStreetMap ↗");
+  const lat=encodeURIComponent(v.lat),lon=encodeURIComponent(v.lon);
+  a.href="https://www.openstreetmap.org/?mlat="+lat+"&mlon="+lon+"#map=16/"+lat+"/"+lon;
+  a.target="_blank";a.rel="noopener noreferrer";
+  const area=make("div","fleet-links");area.append(a);box.append(area);
+ }
+}
+async function searchVehicleNetwork(prefix,box,button){
+ if(fleetSearch)fleetSearch.cancelled=true;
+ const task={cancelled:false};fleetSearch=task;
+ button.disabled=true;button.textContent="Procurando nas linhas...";
+ const status=make("span",null,"Consultando em lotes de até três itinerários. A busca pode levar alguns minutos.");
+ const cancel=make("button","button button-outline","Interromper busca");
+ cancel.type="button";
+ cancel.addEventListener("click",()=>{task.cancelled=true;cancel.disabled=true;status.textContent="Interrompendo após a consulta atual...";});
+ box.append(status,cancel);
+ let cursor=0,previous=-1,total=0,failed=0,matched=null,complete=false;
+ try{
+  while(!task.cancelled&&!document.hidden){
+   const data=await api("/api/vehicle/search?number="+encodeURIComponent(prefix)+"&cursor="+cursor);
+   total=Number(data.totalItinerarios)||0;failed+=Number(data.erros)||0;
+   if(data.veiculos?.length){matched=data.veiculos[0];complete=true;break;}
+   const next=Number(data.nextCursor);
+   if(!Number.isFinite(next)||next<=cursor||next===previous){
+    status.textContent=total?"A busca não avançou; interrompida para proteger o SIU.":"Nenhum itinerário cadastrado na memória D1. Inicie a varredura do CCO primeiro.";
+    break;
+   }
+   previous=cursor;cursor=next;
+   status.textContent="Busca de prefixo "+prefix+": "+cursor+"/"+total+
+    " itinerários examinados · "+failed+" falhas de consulta.";
+   if(data.concluido||cursor>=total){complete=true;break;}
+   // Yield UI thread; SIU upstream also uses cache/spacing.
+   await new Promise(resolve=>setTimeout(resolve,250));
+  }
+  if(task.cancelled)status.textContent="Busca interrompida em "+cursor+"/"+total+" itinerários. Nada foi apagado.";
+  else if(document.hidden)status.textContent="Busca pausada porque a aba ficou em segundo plano. Pesquise novamente quando voltar.";
+  else if(matched){
+   status.textContent="Prefixo "+prefix+" encontrado no SIU durante a busca por itinerários!";
+   addBusMap(box,matched,false);
+  }else if(complete)status.textContent="Prefixo "+prefix+" não apareceu nas respostas de "+
+    total+" itinerários consultados. Isso não comprova que o carro está fora de serviço ou sem GPS.";
+ }catch(e){
+  status.textContent="Não foi possível continuar a busca: "+e.message+". Consultados: "+cursor+"/"+total+".";
+ }finally{
+  cancel.remove();button.disabled=false;button.textContent="Procurar nas linhas do SIU";
+  if(fleetSearch===task)fleetSearch=null;
+ }
+}
 async function getVehicle(){
+ if(fleetSearch)fleetSearch.cancelled=true;
  const code=id("vehicleCode").value.trim(),output=id("vehicleResult");
  if(!/^\d{2,8}$/.test(code)){feedback("Digite um prefixo de 2 a 8 dígitos.",true);return;}
  const fleet=globalThis.FeiraBusFleet.lookup(code),box=make("div","result");
  box.append(make("strong",null,"Prefixo "+code));
- box.append(make("span",null,fleet.empresa?fleet.empresa+" · vínculo histórico confirmado no acervo":"Operadora não confirmada para este prefixo"));
+ box.append(make("span",null,fleet.empresa?
+  "Empresa no acervo: "+fleet.empresa+" (não comprova operador atual)":
+  fleet.ambigua?"Prefixo registrado nos dois acervos; empresa atual indefinida":
+  "Operadora não identificada no acervo cadastrado"));
  box.append(make("span",null,fleet.confirmacao||""));
+ if(fleet.fotosCadastradas)box.append(make("span",null,fleet.fotosCadastradas+" fotografias registradas no índice histórico."));
  const links=make("div","fleet-links");
  for(const link of fleet.links)links.append(makeFleetLink(link));
- box.append(links);
- output.replaceChildren(box);
- const button=id("checkVehicle");button.disabled=true;
+ if(fleet.referencia)links.append(makeFleetLink({label:"Foto identificada do carro ↗",url:fleet.referencia}));
+ box.append(links);output.replaceChildren(box);
+ const btn=id("checkVehicle");btn.disabled=true;
  try{
-  const data=await api("/api/vehicle?number="+encodeURIComponent(code));
-  if(data.veiculos?.length){
-   const v=data.veiculos[0];
-   box.append(make("span",null,"Posição disponível na resposta SIU. Linha: "+(v.linha||"não informada")+". Consulta: "+new Date().toLocaleString("pt-BR")));
-   if(Number.isFinite(v.lat)&&Number.isFinite(v.lon)){
-    const a=make("a",null,"Ver posição no OpenStreetMap ↗");
-    a.href="https://www.openstreetmap.org/?mlat="+encodeURIComponent(v.lat)+"&mlon="+encodeURIComponent(v.lon)+"#map=16/"+encodeURIComponent(v.lat)+"/"+encodeURIComponent(v.lon);
-    a.target="_blank";a.rel="noopener noreferrer";
-    const linkGroup=make("div","fleet-links");linkGroup.append(a);box.append(linkGroup);
-   }
-  }else box.append(make("span",null,"Nenhuma posição confirmada agora pelo endpoint direto do SIU."));
- }catch(e){box.append(make("span",null,"SIU indisponível para consulta direta: "+e.message));}
- finally{button.disabled=false;}
- feedback("Consulta do carro "+code+" concluída. O acervo fotográfico não comprova operação atual.");
+  const result=await api("/api/vehicle?number="+encodeURIComponent(code));
+  if(result.veiculos?.length){
+   const vehicle=result.veiculos[0];
+   addBusMap(box,vehicle,result.historico===true||vehicle.historico===true||vehicle.origem==="d1");
+  }else{
+   box.append(make("span",null,"O SIU não devolveu este carro na consulta direta de embarque, e não há posição recente registrada na D1. A busca por prefixo precisa examinar os itinerários; isso não significa que o ônibus não existe."));
+  }
+  const search=make("button","button button-outline","Procurar nas linhas do SIU");
+  search.type="button";
+  search.style.marginTop="12px";
+  search.addEventListener("click",()=>void searchVehicleNetwork(code,box,search));
+  box.append(search);
+  feedback("Prefixo "+code+" consultado. Para buscar GPS em outras linhas, use 'Procurar nas linhas do SIU'.");
+ }catch(e){
+  box.append(make("span",null,"Falha na consulta inicial: "+e.message));
+  feedback("Não foi possível verificar a memória SIU deste prefixo.",true);
+ }finally{btn.disabled=false;}
 }
 let installEvent=null;
 window.addEventListener("beforeinstallprompt",e=>{

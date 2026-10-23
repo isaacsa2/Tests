@@ -25,7 +25,10 @@ globalThis.fetch=async function(url){
  else if(u.includes("/buscarParadasPorLinha/")){d.paradas=[{cod:"315",sent:"Centro"}];}
  else if(u.includes("/buscarPrevisoes/")){d.previsoes=[{codItinerario:"90",sgLin:"001",numVeicGestor:"400",prev:"5 min",apelidoLinha:"Terminal Central"}];}
  else if(u.includes("/retornaVeiculosMapa/")){d.veiculos=[{lat:-12.25,long:-38.95,numVeicGestor:"400",descricao:"001",direcao:45}];}
- else if(u.includes("/retornaVeiculoEmbarcado/")){d.veiculo={lat:-12.25,long:-38.95,descricao:"001"};}
+ else if(u.includes("/retornaVeiculoEmbarcado/")){
+  // O protocolo de embarque não serve como índice global de prefixos.
+  d.veiculo={lat:-12.25,long:-38.95,numVeicGestor:"400",descricao:"001"};
+ }
  else if(u.includes("/buscarItinerario/")){d.itinerarios=[{coordX:-38.95,coordY:-12.25},{coordX:-38.94,coordY:-12.26}];}
  else return new Response("not found",{status:404});
  return new Response(cb+"("+JSON.stringify(d)+");");
@@ -82,6 +85,43 @@ const siuStamp=data.veiculos[0].consultadoEm;
 assert.equal(data.veiculos[0].consultadoEm,siuStamp,"Cached GPS must retain the upstream fetch timestamp");
 assert.equal(requests.filter(x=>x.includes("/retornaVeiculosMapa/")).length,lastOriginCall);
 [,data]=await get("/api/vehicle?number=400");assert.equal(data.veiculos[0].id,"400");
+[,data]=await get("/api/vehicle?number=33009");
+assert.equal(data.veiculos.length,0,"Não inventar coordenadas quando o SIU devolve outro prefixo");
+assert.equal(data.origem,"nao_localizado");
+const mockDb={
+ prepare(sql){return {
+  sql,args:[],bind(...x){this.args=x;return this;},
+  async first(){
+   if(sql.includes("sqlite_master"))return {name:"fb_lines"};
+   if(sql.includes("FROM fb_vehicles"))return null;
+   throw Error("Unexpected SQL: "+sql);
+  },
+  async all(){
+   if(sql.includes("SELECT id FROM fb_routes"))return {results:[{id:"90"},{id:"91"}]};
+   throw Error("Unexpected SQL: "+sql);
+  },
+  async run(){return {success:true};}
+ };},
+ async batch(statements){return Promise.all(statements.map(x=>x.run()));}
+};
+async function dbGet(path){
+ const response=await worker.fetch(new Request("https://tests.isaacsa2-santana.workers.dev"+path),
+   {...env,FEIRABUS_DB:mockDb},ctx);
+ return [response.status,await response.json()];
+}
+let [finderStatus,finderData]=await dbGet("/api/vehicle/search?number=400&cursor=0");
+assert.equal(finderStatus,200);
+assert.equal(finderData.veiculos[0].id,"400");
+assert.equal(finderData.origem,"siu_itinerario");
+assert.equal(finderData.totalItinerarios,2);
+[finderStatus,finderData]=await dbGet("/api/vehicle/search?number=33009&cursor=0");
+assert.equal(finderStatus,200);
+assert.equal(finderData.veiculos.length,0);
+assert.equal(finderData.concluido,true);
+assert.equal(finderData.totalItinerarios,2);
+assert.equal((await dbGet("/api/vehicle/search?number=../../admin&cursor=0"))[0],400);
+assert.equal((await dbGet("/api/vehicle/search?number=33009&cursor=9999"))[0],400);
+
 [,data]=await get("/api/geometry?itinerary=90");assert.equal(data.geometry.coordinates.length,2);
 assert.equal((await get("/api/vehicle?number=../../admin"))[0],400);
 assert.equal((await get("/api/lines","https://site-externo.invalid"))[0],403);

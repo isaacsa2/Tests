@@ -127,6 +127,24 @@ export async function getMemory(db){
   }))
  };
 }
+export async function lookupVehicle(db,prefix,maxAgeMs=48*3600000){
+ const id=String(prefix??"");
+ if(!validId(id))return null;
+ await ensureDb(db);
+ const row=await db.prepare(
+  "SELECT id,line AS linha,lat,lon,heading AS rumo,itinerary AS itinerario,observed_at FROM fb_vehicles WHERE id=? AND observed_at>=? LIMIT 1"
+ ).bind(id,now()-maxAgeMs).first();
+ if(!row)return null;
+ return {id:String(row.id),linha:String(row.linha||""),lat:Number(row.lat),lon:Number(row.lon),
+  rumo:row.rumo==null?null:Number(row.rumo),itinerario:row.itinerario||null,
+  consultadoEm:new Date(Number(row.observed_at)).toISOString(),
+  origem:"d1",historico:true};
+}
+export async function listSearchRoutes(db){
+ await ensureDb(db);
+ const rows=await db.prepare("SELECT id FROM fb_routes ORDER BY updated_at DESC,id LIMIT 200").all();
+ return (rows.results||[]).map(x=>String(x.id)).filter(validId);
+}
 export async function dbStatus(db){
  await ensureDb(db);
  const [lines,routes,vehicles,schedules]=await Promise.all([
