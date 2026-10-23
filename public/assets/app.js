@@ -53,7 +53,7 @@ function fit(){const vals=s.mode==="demo"?demo:[...s.buses.values()];if(!vals.le
 async function api(path,urgent=false){
  if(!urgent){const wait=Math.max(0,2500-(Date.now()-previousRequest));if(wait)await delay(wait);}
  previousRequest=Date.now();
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),17000);
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
  try {
   const response=await fetch(path,{signal:controller.signal,cache:"no-store"});
   const data=await response.json();
@@ -83,6 +83,12 @@ async function run(){
  el("start").disabled=true;el("stop").disabled=false;tag("CONSULTANDO SIU • GPS REAL (SE DISPONÍVEL)");
  const wide=el("wide").checked,secondary=[],secondIds=new Set();
  try{
+  say("Inicializando comunicação como o SIU Mobile...");
+  try {
+    const initial=await api("/api/initialize",true);
+    if(!initial.sucesso) say("Inicialização não confirmada; verificando catálogo diretamente.",true);
+  }catch(e){say("Inicialização falhou ("+e.message+"). Tentando catálogo de linhas...",true);}
+  if(s.stop)return;
   say("Consultando catálogo de linhas do SIU...");
   const d=await api("/api/lines",true);s.lines=d.linhas||[];paint();
   if(!s.lines.length){say("O SIU respondeu sem linhas. Não há veículos para descobrir.",true);return;}

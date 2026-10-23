@@ -63,3 +63,24 @@ Para implantação manual, se preferir:
 Documentação Cloudflare:
 - https://developers.cloudflare.com/workers/ci-cd/builds/
 - https://developers.cloudflare.com/workers/static-assets/
+
+## Compatibilidade com o SIU Mobile (atualização de 23/10/2026)
+
+A consulta foi alinhada ao comportamento observado em `assets/www/js/json.js` e `assets/www/index.html` do APK 1.29.2:
+
+- No início da varredura, chama `buscarParametrosIniciais/retornoJSONParametrosIniciais`; uma falha nessa etapa é exibida, mas a descoberta de linhas ainda é tentada. Não expõe os parâmetros internos retornados pelo operador.
+- Usa requisições GET estilo jQuery JSONP com `callback=jQuery...&_=<timestamp>`; aceita a função JSONP dinâmica ou a função nomeada no caminho (sem executar JavaScript do servidor).
+- Respeita timeout de 45 segundos no Worker e 55 segundos no navegador, para permitir a resposta ou um diagnóstico confiável.
+- Interpreta listas de linhas como JSON tradicional **ou** texto contendo objetos JSON separados por vírgulas, tal como o aplicativo.
+- Para listar paradas usa `V3/buscarParadasPorLinha/{linha}/0/{cidade}/retornoJSON`, com fallback para coordenadas.
+
+**Não foi copiado o registro de uso do aplicativo:** `registraUsoSistema` parece contabilizar instalações/uso e não é comprovadamente um login. Um Worker gerando identificadores artificiais distorceria a telemetria do SIU. Também não há cookies, Bearer tokens ou credenciais privadas incluídos.
+
+Ao verificar a implantação:
+
+1. `/api/status` — informa que o novo código entrou no ar, sem afirmar conectividade real.
+2. `/api/initialize` — testa a inicialização oficial.
+3. `/api/lines` — testa a consulta JSONP das linhas.
+4. Consulte a interface e procure um veículo pelo número apenas se o SIU responder.
+
+**Limite:** os testes CI simulam as respostas do SIU; eles não garantem conectividade do servidor real nem autorizam contornar bloqueios por IP, origem ou credenciais. Se o servidor não permitir requisições originadas da Cloudflare, é necessário alinhamento com o operador.
