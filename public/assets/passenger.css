@@ -139,3 +139,6 @@ footer{padding:20px 4px;font-size:11px;color:var(--dim);line-height:1.8}
 .line-map.map-dark .leaflet-tile-pane{filter:grayscale(.75) invert(1) hue-rotate(180deg) brightness(.75) contrast(1.12)}
 .line-map .leaflet-popup-content{font-family:"Public Sans",system-ui,sans-serif;font-size:13px}
 @media(min-width:1024px){.fav-list{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}}
+/* Texto sobre blocos coloridos fica claro em qualquer tema (o amarelo usa tinta escura). */
+.tile-blue,.tile-green,.tile-red,.section-num,.badge-access{color:#f5f2ea}
+.accent-yellow .section-num,.tile-yellow{color:var(--ink)}
