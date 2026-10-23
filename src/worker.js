@@ -1,3 +1,4 @@
+import {HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus} from "./d1-memory.js";
 // FeiraBus: gateway fixo do SIU. Respostas do servidor real ainda precisam ser validadas.
 const BASE = "http://fsa.siumobile.com.br:6060/siumobile-ws-v01/rest/ws/";
 const BOUNDS = {minLat:-13.2,maxLat:-11.7,minLon:-39.8,maxLon:-38.3};
@@ -7,6 +8,14 @@ const TIMEOUT_MS = 45000; // SIU Mobile executaJson() usa 45 segundos.
 let lastCall = 0;
 const json = (body,status=200) => new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
 const bad = (message,status=400) => Object.assign(new Error(message),{status});
+function remember(env,ctx,work){
+ if(!HAS_DB(env))return;
+ // Se a D1 falhar, não pode interromper o rastreamento do SIU.
+ ctx.waitUntil(Promise.resolve().then(()=>work(env.FEIRABUS_DB)).catch(e=>{
+   console.warn("FeiraBus D1: falha de persistência:",String(e?.message??e).slice(0,150));
+ }));
+}
+
 function ident(v) {
   v=String(v??"").trim();
   if(!/^[A-Za-z0-9_-]{1,32}$/.test(v)) throw bad("Identificador invalido");
@@ -144,7 +153,17 @@ function vehicle(x,route,idOverride){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-siu-timetable-hotfix-v4",recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-d1-shared-memory-v5",d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/memory/status"){
+    if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
+    try{return await dbStatus(env.FEIRABUS_DB);}
+    catch(e){throw bad("D1 indisponivel: "+String(e?.message??e).slice(0,130),503);}
+  }
+  if(p==="/api/memory/snapshot"){
+    if(!HAS_DB(env))throw bad("D1 nao configurada; confira wrangler.jsonc e o deploy",503);
+    try{return await getMemory(env.FEIRABUS_DB);}
+    catch(e){throw bad("Memoria D1 indisponivel: "+String(e?.message??e).slice(0,130),503);}
+  }
   if(p==="/api/initialize"){
     // O app FSA chama este endpoint ao abrir pela primeira vez. Retornamos
     // apenas o diagnóstico: parâmetros internos do operador não são publicados.
@@ -160,6 +179,7 @@ async function action(url,env,ctx){
       .map(x=>({id:String(x.cod),numero:String(x.sgl??""),nome:String(x.nom??"")}));
     meta.linhasValidas=linhas.length;
     if(p==="/api/diagnostics/lines")return {diagnostico:meta,linhasExemplo:linhas.slice(0,3)};
+    if(linhas.length)remember(env,ctx,db=>saveLines(db,linhas));
     return {linhas,diagnostico:linhas.length?undefined:meta};
   }
   if(p==="/api/sublines"){
@@ -169,6 +189,12 @@ async function action(url,env,ctx){
   if(p==="/api/schedule"){
     // API reproduzida do APK: assets/www/retornaQroLinha.html, funcao iniciar().
     const n=ident(q.get("line"));
+    if(HAS_DB(env)){
+      try{
+        const cached=await readSchedule(env.FEIRABUS_DB,n);
+        if(cached)return {linha:n,horarios:cached.horarios,fonte:"SIU Mobile - quadro programado (cache D1)",pontualidade:"nao-aferida",consultadoEm:cached.consultadoEm};
+      }catch(e){console.warn("FeiraBus D1: leitura de horarios:",String(e?.message??e).slice(0,120));}
+    }
     const d=await upstream("V3/retornaQroLinha/"+n+"/0/"+city+"/retornoJSON","retornoJSON",1800,ctx);
     if(!success(d))throw bad("SIU nao confirmou o quadro de horarios desta linha",502);
     const horarios=array(d?.qros).filter(x=>x&&typeof x==="object"&&x.cod!=="Sem Dados")
@@ -180,7 +206,8 @@ async function action(url,env,ctx){
         const m=x.horario.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
         return m&&Number(m[1])<24&&Number(m[2])<60;
       });
-    return {linha:n,horarios,fonte:"SIU Mobile - quadro de partidas programadas",pontualidade:"nao-aferida"};
+    if(horarios.length)remember(env,ctx,db=>saveSchedule(db,n,horarios));
+    return {linha:n,horarios,fonte:"SIU Mobile - quadro de partidas programadas",pontualidade:"nao-aferida",consultadoEm:new Date().toISOString()};
   }
   if(p==="/api/stops"){
     const n=ident(q.get("line"));let d;
@@ -192,23 +219,30 @@ async function action(url,env,ctx){
   }
   if(p==="/api/predictions"){
     const n=ident(q.get("stop")),d=await upstream("V3/buscarPrevisoes/"+n+"/false/0/"+city+"/retornoJSON","retornoJSON",180,ctx);
-    return {previsoes:success(d)?array(d.previsoes).filter(x=>x?.sgLin!=="Sem Dados").map(x=>({
+    const previsoes=success(d)?array(d.previsoes).filter(x=>x?.sgLin!=="Sem Dados").map(x=>({
       itinerario:x?.codItinerario==null?null:String(x.codItinerario),
       linha:String(x?.sgLin??"").slice(0,50),carro:String(x?.numVeicGestor??"").slice(0,40),
       previsao:String(x?.prev??"").slice(0,110),
       destino:String(x?.apelidoLinha??"").slice(0,90),
       acessibilidade:String(x?.tpAcess??"").slice(0,15)
-    })):[]};
+    })):[];
+    const itinerarios=previsoes.map(x=>x.itinerario).filter(Boolean);
+    if(itinerarios.length)remember(env,ctx,db=>saveRoutes(db,itinerarios));
+    return {previsoes};
   }
   if(p==="/api/vehicles"){
     const n=ident(q.get("itinerary")),d=await upstream("V3/retornaVeiculosMapa/"+n+"/0/"+city+"/retornoJSONVeiculos","retornoJSONVeiculos",45,ctx);
-    return {veiculos:success(d)?array(d.veiculos).map(x=>vehicle(x,n)).filter(x=>x?.id):[],itinerario:n};
+    const veiculos=success(d)?array(d.veiculos).map(x=>vehicle(x,n)).filter(x=>x?.id):[];
+    if(success(d))remember(env,ctx,db=>saveVehicles(db,veiculos,n));
+    return {veiculos,itinerario:n};
   }
   if(p==="/api/vehicle"){
     const n=ident(q.get("number")),d=await upstream("retornaVeiculoEmbarcado/"+n+"/retornoJSONVeiculos","retornoJSONVeiculos",60,ctx);
     const raw=array(d.veiculos);
     if(!raw.length&&d.veiculo&&typeof d.veiculo==="object")raw.push(d.veiculo);
-    return {veiculos:success(d)?raw.map(x=>vehicle(x,null,n)).filter(x=>x?.id===n):[],numeroConsultado:n};
+    const veiculos=success(d)?raw.map(x=>vehicle(x,null,n)).filter(x=>x?.id===n):[];
+    if(veiculos.length)remember(env,ctx,db=>saveVehicles(db,veiculos));
+    return {veiculos,numeroConsultado:n};
   }
   if(p==="/api/geometry"){
     const n=ident(q.get("itinerary")),d=await upstream("V3/buscarItinerario/"+n+"/0/"+city+"/retornoJSONItinerario","retornoJSONItinerario",86400,ctx);

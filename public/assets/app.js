@@ -6,6 +6,7 @@ const s={mode:"demo",running:false,stop:false,lines:[],buses:new Map(),routes:ne
 const memory=globalThis.FeiraBusMemory;
 const checkedThisVisit=new Set();
 let memoryReady=false,memoryAvailable=false,saveTimer=null,previousRequest=0;
+let cloudSyncBusy=false;
 const map=L.map("map",{zoomControl:true}).setView([-12.265,-38.965],12);
 const pins=L.layerGroup().addTo(map), linesLayer=L.layerGroup().addTo(map);
 let selectedVehicleId=null;
@@ -186,7 +187,40 @@ async function restore(){
   say("O navegador não permite salvar memória local ("+e.message+"). O monitoramento continuará, mas recarregar a página perderá o progresso.",true);
  }finally{
   memoryReady=true;buttonState();paint();
+  void hydrateSharedMemory();
  }
+}
+async function hydrateSharedMemory(){
+ if(cloudSyncBusy)return;
+ cloudSyncBusy=true;el("sharedRefresh").disabled=true;
+ el("d1State").textContent="Conectando...";
+ try{
+  const res=await api("/api/memory/snapshot",true);
+  if(!Array.isArray(res.veiculos)||!Array.isArray(res.linhas)||!Array.isArray(res.itinerarios))
+    throw new Error("Resposta incompleta da D1");
+  if(!s.lines.length&&res.linhas.length)s.lines=res.linhas;
+  for(const route of res.itinerarios){
+   if(typeof route==="string"&&/^[A-Za-z0-9_-]{1,32}$/.test(route))s.routes.add(route);
+  }
+  let imported=0;
+  for(const v of res.veiculos){
+   if(!v?.id||!Number.isFinite(v.lat)||!Number.isFinite(v.lon))continue;
+   const old=s.buses.get(String(v.id));
+   if(old&&Number(old.lastSeen)>=Number(v.lastSeen))continue;
+   s.buses.set(String(v.id),{...v,origem:"d1",lastSeen:Number(v.lastSeen)||0});
+   imported++;
+  }
+  el("d1State").textContent=res.veiculos.length+" carros · "+res.itinerarios.length+" itinerários";
+  if((res.veiculos.length||res.linhas.length)&&s.mode==="demo"){
+   s.mode="memory";tag("HISTÓRICO COMPARTILHADO · POSIÇÕES NÃO AO VIVO");
+  }
+  if(!s.running)eventLog("Memória compartilhada D1 sincronizada: "+imported+" veículos novos, "+res.itinerarios.length+" itinerários conhecidos.");
+  if(imported&&memoryAvailable)scheduleSave();
+  paint();
+ }catch(e){
+  el("d1State").textContent="Indisponível";
+  if(!s.running)eventLog("D1 não disponível: "+e.message+". Memória local e SIU continuam disponíveis.","warn");
+ }finally{cloudSyncBusy=false;el("sharedRefresh").disabled=false;}
 }
 function say(t,error=false){
  el("notice").textContent=t;
@@ -445,14 +479,14 @@ async function exportGeo(){
 }
 async function clearMemory(){
  if(s.running)return;
- if(!confirm("Excluir do navegador os carros salvos, linhas, progresso da varredura e geometria dos itinerários?"))return;
+ if(!confirm("Limpar a memória LOCAL deste navegador? Os registros compartilhados da D1 permanecerão no servidor."))return;
  try{
   if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}
   if(memoryAvailable)await memory.clear();
   clearDetail();s.mode="demo";s.phase="new";s.lines=[];s.buses.clear();s.routes.clear();s.scanned.clear();
   s.geometry.clear();s.secondary=[];s.nextLineIndex=0;s.secondaryIndex=0;s.done=0;s.errors=0;s.poll=false;
   checkedThisVisit.clear();memoryLabel(memoryAvailable?"Memória limpa":"Indisponível");
-  tag("MODO DEMONSTRAÇÃO");say("Memória local apagada. O monitor continua disponível para nova varredura.");
+  tag("MODO DEMONSTRAÇÃO");say("Memória deste navegador apagada. O histórico compartilhado na D1 permanece disponível; use Sincronizar histórico para restaurá-lo.");
   buttonState();paint();
  }catch(e){memoryLabel("Erro ao limpar: "+e.message);}
 }
@@ -485,6 +519,7 @@ el("copyCoords").addEventListener("click",async()=>{
  catch{eventLog("Não foi possível copiar coordenadas neste navegador.","warn");}
 });
 el("clearMemory").addEventListener("click",clearMemory);
+el("sharedRefresh").addEventListener("click",hydrateSharedMemory);
 el("busSearch").addEventListener("input",paint);
 el("direct").addEventListener("click",direct);
 el("directNumber").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();direct();}});

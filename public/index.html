@@ -103,9 +103,10 @@
     <button id="export" class="btn btn-ghost" type="button">↧ Exportar itinerários GeoJSON</button>
     <button id="clearMemory" class="btn btn-subtle-danger" type="button" disabled>✕ Limpar memória</button>
     <div class="memoryInfo" aria-live="polite"><span>MEMÓRIA LOCAL • INDEXEDDB</span><strong id="memoryState">Carregando...</strong></div>
+    <div class="memoryInfo cloud-memory"><span>MEMÓRIA COMPARTILHADA • D1</span><strong id="d1State">Verificando...</strong><button type="button" id="sharedRefresh" class="btn btn-ghost">↻ Sincronizar histórico</button></div>
    </div>
   </section>
-  <p class="disclaimer">Painel independente de observação de dados do SIU Mobile. Não é uma central oficial nem apresenta ocorrências operacionais verificadas. Os totais refletem apenas os veículos e itinerários encontrados nas consultas disponíveis, não a frota integral. Localização armazenada é histórica; a data exibida é a da consulta e não comprova atualização do GPS do veículo. A memória fica neste navegador e não sincroniza entre aparelhos. A varredura não funciona com a página fechada. Exportações geográficas permanecem em escala real, para conversão posterior ao OMSI 1:2.</p>
+  <p class="disclaimer">Painel independente de observação de dados do SIU Mobile. Não é uma central oficial nem apresenta ocorrências operacionais verificadas. Os totais refletem apenas os veículos e itinerários encontrados nas consultas disponíveis, não a frota integral. Localização armazenada é histórica; a data exibida é a da consulta e não comprova atualização do GPS do veículo. O checkpoint da varredura permanece neste navegador; os registros públicos de linhas, itinerários e última posição de veículos são compartilhados pela Cloudflare D1 quando disponível. A varredura não funciona com a página fechada. Exportações geográficas permanecem em escala real, para conversão posterior ao OMSI 1:2.</p>
  </main>
 </div>
 <footer class="footer"><span>FEIRABUS / CCO · PROTÓTIPO INDEPENDENTE</span><span>Dados cartográficos: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Tema escuro local / OSM</span></footer>
