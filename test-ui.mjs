@@ -33,7 +33,7 @@ const fleet=fs.readFileSync("public/assets/fleet.js","utf8");
 const manifest=JSON.parse(fs.readFileSync("public/manifest.webmanifest","utf8"));
 const serviceWorker=fs.readFileSync("public/sw.js","utf8");
 assert.ok(html.includes('href="/passageiro.html"')&&html.includes('/assets/fleet.js'),"CCO sem acesso ao passageiro/frota");
-assert.ok(app.includes('Math.max(0,1600-')&&!app.includes('Math.max(0,2500-'),"Intervalo de consultas não foi otimizado");
+assert.ok(app.includes("while(activeRequests>=GPS.PARALLEL)")&&!app.includes('Math.max(0,1600-'),"CCO deve limitar consultas simultâneas em vez de esperar 1,6 s entre elas");
 assert.ok(app.includes("FeiraBusFleet?.lookup"),"Ficha não usa referências da frota");
 for(const path of ["/api/lines","/api/schedule","/api/predictions","/api/vehicle"])assert.ok(passengerJS.includes(path),"Recurso ausente: "+path);
 assert.ok(passenger.includes('rel="manifest"')&&passenger.includes('/assets/passenger.js'),"Página não carregou PWA");
@@ -60,10 +60,10 @@ assert.ok(html.includes('/assets/gps-polling.js'),"GPS scheduler not loaded befo
 assert.ok(app.includes("GPS.chooseRoutes(")&&app.includes("function startGpsPolling()"),"Bounded GPS refresh missing");
 assert.ok(app.includes("Date.parse(String(v.consultadoEm"),"GPS must distinguish SIU query age from rendering time");
 assert.ok(!app.includes("for(const id of s.routes){if(!s.poll)break;"),"Regression: unlimited full fleet refresh");
-assert.equal((gpsSource.match(/routeBatch:10/g)||[]).length,3,"GPS 15/30/60 modes must all use 10 per batch");
-assert.ok(gpsSource.includes('Math.floor(batch)),10)'),"GPS cap must be 10");
+assert.ok(gpsSource.includes("routeBatch:20")&&gpsSource.includes("routeBatch:30")&&gpsSource.includes("routeBatch:40"),"GPS 15/30/60 s: rodadas de 20/30/40 itinerários");
+assert.ok(gpsSource.includes('Math.floor(batch)),40)')&&gpsSource.includes("PARALLEL:6"),"Rodada limitada a 40 e 6 consultas simultâneas");
 assert.ok(passenger.includes('id="sync15Stops"')&&passenger.includes('id="stopBatchStatus"'),"Passenger stop batch UI missing");
-assert.ok(passengerJS.includes('async function syncNext15Stops()')&&passengerJS.includes('slice(start,start+15)'),"Passenger stop predictions must use 15 per batch");
+assert.ok(passengerJS.includes('async function syncNext15Stops()')&&passengerJS.includes('slice(start,start+BATCH)')&&passengerJS.includes("const BATCH=30,PARALLEL=6"),"Linha toda em lotes de 30, 6 consultas por vez");
 assert.ok(passengerJS.includes('stop.nome||"Ponto "+stop.id'),"Passenger must show official stop name or explicit fallback");
 assert.ok(workerSource.includes('nome:String(x.end??x.desc??"")'),"Worker must return SIU stop name from the end field");
 assert.ok(workerSource.includes('"retornoJSONVeiculos",12,ctx')&&workerSource.includes('"retornoJSONVeiculos",20,ctx'),"Cache TTLs too slow for focus poll");
@@ -83,7 +83,7 @@ for(const name of [...passengerJS.matchAll(/\bid\("([^"]+)"\)/g)].map(m=>m[1]))
 assert.ok(passengerJS.includes("/api/stops?line=")&&passengerJS.includes("function groupStops(")&&passengerJS.includes("function selectOrigin("),"Paradas por origem ausentes");
 assert.ok(!passengerJS.includes("showSchedule("),"Regressão: função inexistente ao limpar a linha");
 assert.ok(passengerCss.includes("@media(min-width:1024px)")&&passengerCss.includes("@media(min-width:700px)"),"Layout PC/celular ausente");
-assert.ok(serviceWorker.includes('"feirabus-passenger-v5"'),"Cache do PWA precisa nova versão após mudar a interface");
+assert.ok(serviceWorker.includes('"feirabus-passenger-v6"'),"Cache do PWA precisa nova versão após mudar a interface");
 console.log("OK: passageiro com origens, pontos e layout responsivo.");
 
 // CCO: modo celular por abas e filtro "GPS por linha".

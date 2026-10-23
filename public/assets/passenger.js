@@ -4,6 +4,13 @@ const id=name=>document.getElementById(name);
 const state={lines:[],schedule:[],variants:[],latestRequest:0,installPrompt:null,origins:[],origin:null,stopsRequest:0,openStop:null,pendingStop:null,stopBatchResults:new Map(),stopBatchToken:0,stopBatchRunning:false,lineRoutes:new Set()};
 // Ônibus sem posição nova há mais de 30 min some do app (o CCO continua mostrando).
 const BUS_MAX_AGE=30*60*1000;
+// Lotes de 30 itens com no máximo 6 consultas simultâneas por aparelho.
+const BATCH=30,PARALLEL=6;
+async function pool(items,limit,task){
+ const list=Array.from(items||[]);let next=0;
+ const worker=async()=>{while(next<list.length){const i=next++;await task(list[i],i);}};
+ await Promise.all(Array.from({length:Math.max(0,Math.min(limit,list.length))},worker));
+}
 const FAV_KEY="feirabus-passenger-favorites",FAV_MAX=12;
 function store(key,value){try{if(value==null)localStorage.removeItem(key);else localStorage.setItem(key,JSON.stringify(value));return true;}catch{return false;}}
 function load(key){try{return JSON.parse(localStorage.getItem(key)||"null");}catch{return null;}}
@@ -284,7 +291,7 @@ function selectOrigin(key){
  id("sync15Stops").disabled=false;
  if(!state.stopBatchRunning){
   const total=new Set(state.origins.flatMap(g=>g.stops.map(x=>x.id))).size;
-  id("stopBatchStatus").textContent="Linha toda: "+total+" pontos em "+state.origins.length+(state.origins.length===1?" origem":" origens")+", consultados em lotes de 15.";
+  id("stopBatchStatus").textContent="Linha toda: "+total+" pontos em "+state.origins.length+(state.origins.length===1?" origem":" origens")+", consultados em lotes de 30 (6 por vez).";
  }
  for(const tab of id("originTabs").children){
   const on=tab.dataset.origin===key;
@@ -613,26 +620,26 @@ async function loadLineMap(){
   // Itinerários desta linha: previsões do primeiro ponto de cada origem.
   meta.textContent="Descobrindo itinerários da linha "+(line||code)+"…";
   const routes=new Set();
-  for(const g of state.origins.slice(0,3)){
-   const first=g.stops[0];if(!first)continue;
+  await pool(state.origins.slice(0,3).map(g=>g.stops[0]).filter(Boolean),PARALLEL,async first=>{
    try{
     const d=await api("/api/predictions?stop="+encodeURIComponent(first.id));
     for(const row of d.previsoes||[])
      if(plain(row.linha)===line&&validCode(String(row.itinerario??"")))routes.add(String(row.itinerario));
    }catch{}
-   if(mapState.code!==code)return;
-  }
+  });
+  if(mapState.code!==code)return;
   for(const r of state.lineRoutes)routes.add(r);
   mapState.routes=[...routes].slice(0,8);
   const bounds=[];
   const colors=["#f2c230","#7aa7ef","#6fd39a","#ff8a7a","#c79bff","#f5f2ea"];
+  const shapes=[];
+  await pool(mapState.routes,PARALLEL,async(route,i)=>{
+   try{shapes[i]=await api("/api/geometry?itinerary="+encodeURIComponent(route));}catch{}
+  });
+  if(mapState.code!==code)return;
   for(const [i,route] of mapState.routes.entries()){
-   try{
-    const g=await api("/api/geometry?itinerary="+encodeURIComponent(route));
-    if(mapState.code!==code)return;
-    const pts=(g.geometry?.coordinates||[]).map(([lon,lat])=>[lat,lon]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
-    if(pts.length>1){L.polyline(pts,{color:colors[i%colors.length],weight:5,opacity:.85}).bindTooltip("Itinerário "+route).addTo(mapState.routeLayer);bounds.push(...pts);}
-   }catch{}
+   const pts=(shapes[i]?.geometry?.coordinates||[]).map(([lon,lat])=>[lat,lon]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
+   if(pts.length>1){L.polyline(pts,{color:colors[i%colors.length],weight:5,opacity:.85}).bindTooltip("Itinerário "+route).addTo(mapState.routeLayer);bounds.push(...pts);}
   }
   for(const st of allStops().filter(x=>Number.isFinite(x.lat))){
    L.circleMarker([st.lat,st.lon],{radius:4,color:"#16181f",weight:1,fillColor:"#f5f2ea",fillOpacity:1})
@@ -658,7 +665,7 @@ async function refreshBuses(){
  if(!code||!mapState.routes.length||!window.L)return;
  const b=id("refreshBuses");b.disabled=true;
  let seen=0,ok=0;const markers=[];
- for(const route of mapState.routes){
+ await pool(mapState.routes,PARALLEL,async route=>{
   try{
    const d=await api("/api/vehicles?itinerary="+encodeURIComponent(route));
    ok++;
@@ -670,8 +677,8 @@ async function refreshBuses(){
      .bindPopup("Carro "+v.id+" · linha "+(v.linha||mapState.line)+"<br>Consulta SIU às "+when));
    }
   }catch{}
-  if(mapState.code!==code){b.disabled=false;return;}
- }
+ });
+ if(mapState.code!==code){b.disabled=false;return;}
  mapState.busLayer.clearLayers();
  for(const m of markers)m.addTo(mapState.busLayer);
  id("mapMeta").textContent=(seen?seen+(seen===1?" ônibus visto":" ônibus vistos"):"Nenhum ônibus visto")+" nos últimos 30 min em "+ok+"/"+mapState.routes.length+" itinerários · "+new Date().toLocaleTimeString("pt-BR");
@@ -695,7 +702,7 @@ function normLine(v){
  if(/^\d{1,2}$/.test(t))return t.padStart(3,"0");
  const m=t.match(/^(\d)([A-Z])$/);return m?"0"+m[1]+m[2]:t;
 }
-// Sincroniza a linha toda (todas as origens) em lotes de 15 pontos, uma consulta por vez.
+// Sincroniza a linha toda (todas as origens) em lotes de 30 pontos, 6 consultas por vez.
 // O mesmo botão interrompe. Os itinerários desta linha encontrados alimentam o mapa.
 async function syncNext15Stops(){
  if(state.stopBatchRunning){state.stopBatchToken++;id("stopBatchStatus").textContent="Parando após a consulta atual…";return;}
@@ -709,13 +716,14 @@ async function syncNext15Stops(){
  const status=id("stopBatchStatus"),buses=new Set();
  let completed=0,failed=0,withLine=0;
  try{
-  for(let start=0;start<queue.length;start+=15){
-   const batch=queue.slice(start,start+15);
-   for(const stop of batch){
-    if(token!==state.stopBatchToken||document.hidden)break;
+  const stopped=()=>token!==state.stopBatchToken||document.hidden;
+  for(let start=0;start<queue.length;start+=BATCH){
+   const batch=queue.slice(start,start+BATCH);
+   await pool(batch,PARALLEL,async stop=>{
+    if(stopped())return;
     try{
      const data=await api("/api/predictions?stop="+encodeURIComponent(stop.id));
-     if(token!==state.stopBatchToken)break;
+     if(token!==state.stopBatchToken)return;
      const entries=(Array.isArray(data.previsoes)?data.previsoes:[]).filter(v=>v?.linha&&v.linha!=="Sem Dados");
      const mine=entries.filter(v=>plain(v.linha)===line);
      for(const v of mine){
@@ -736,10 +744,10 @@ async function syncNext15Stops(){
      state.stopBatchResults.set(stop.id,"Falha na consulta");
     }
     completed++;
-    status.textContent="Linha toda: "+completed+"/"+queue.length+" pontos (lote "+(Math.floor(start/15)+1)+" de "+Math.ceil(queue.length/15)+") · "+
+    status.textContent="Linha toda: "+completed+"/"+queue.length+" pontos (lote "+(Math.floor(start/BATCH)+1)+" de "+Math.ceil(queue.length/BATCH)+", "+PARALLEL+" por vez) · "+
      withLine+" com previsão da linha "+line+" · "+failed+" falhas.";
-   }
-   if(token!==state.stopBatchToken||document.hidden)break;
+   });
+   if(stopped())break;
   }
   if(token!==state.stopBatchToken)status.textContent="Sincronização interrompida em "+completed+"/"+queue.length+" pontos.";
   else if(document.hidden)status.textContent="Pausado em "+completed+"/"+queue.length+" pontos porque a aba ficou em segundo plano.";

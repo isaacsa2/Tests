@@ -65,7 +65,7 @@
   <div id="originInfo" class="origin-info" hidden></div>
   <div class="stops-batch-controls">
    <button id="sync15Stops" type="button" class="button button-outline button-small" disabled>↻ Sincronizar linha toda</button>
-   <small id="stopBatchStatus" role="status" aria-live="polite">Selecione uma linha para consultar a previsão de todos os pontos, em lotes de 15.</small>
+   <small id="stopBatchStatus" role="status" aria-live="polite">Selecione uma linha para consultar a previsão de todos os pontos, em lotes de 30 (6 por vez).</small>
   </div>
   <ol id="stopList" class="stop-list"><li class="empty">Os pontos de cada origem aparecerão aqui.</li></ol>
   <details class="manual-stop">
@@ -74,7 +74,7 @@
    <div class="query-row"><input id="stopCode" inputmode="numeric" type="text" placeholder="Digite o código do ponto"><button id="checkStop" type="button" class="button button-main">Consultar</button></div>
    <div id="predictions" class="results"><div class="empty">Nenhuma parada consultada.</div></div>
   </details>
-  <p class="note">Os nomes das paradas vêm do SIU, quando disponíveis. A sincronização consulta a linha toda em lotes de 15 pontos, um por vez, sem contagem real de passageiros. As previsões representam a estimativa do SIU, não um registro de pontualidade comprovada. O selo ♿ aparece quando o SIU marca o veículo como acessível.</p>
+  <p class="note">Os nomes das paradas vêm do SIU, quando disponíveis. A sincronização consulta a linha toda em lotes de 30 pontos, 6 por vez, sem contagem real de passageiros. As previsões representam a estimativa do SIU, não um registro de pontualidade comprovada. O selo ♿ aparece quando o SIU marca o veículo como acessível.</p>
  </section>
  <section class="card accent-blue wide" id="mapa">
   <div class="section-header"><div class="section-num">04</div><div><div class="section-id">04 / MAPA</div><h2>Trajeto e ônibus da linha</h2><p>Mostra o trajeto da linha escolhida em 01 e os ônibus vistos pelo SIU nos últimos 30 minutos.</p></div></div>

@@ -371,9 +371,19 @@ function paint(){
 // No celular o mapa fica oculto fora da aba Mapa (tamanho 0): enquadrar ao abri-la.
 let pendingFit=false;
 function fit(){if(!map.getSize().x){pendingFit=true;return;}pendingFit=false;const known=[...s.buses.values()],only=watch.lines.length?known.filter(isWatched):known;const vals=s.mode==="demo"?demo:only.length?only:known;if(!vals.length)return;map.fitBounds(L.latLngBounds(vals.map(v=>[v.lat,v.lon])).pad(.20),{maxZoom:14});}
+// No máximo 6 consultas simultâneas deste navegador, com 80 ms entre inícios
+// (antes: uma a cada 1,6 s). O Worker ainda limita o que chega ao SIU.
+let activeRequests=0;
 async function api(path,urgent=false){
- if(!urgent){const wait=Math.max(0,1600-(Date.now()-previousRequest));if(wait)await delay(wait);}
- previousRequest=Date.now();
+ while(activeRequests>=GPS.PARALLEL)await delay(40);
+ activeRequests++;
+ try{
+  if(!urgent){const wait=Math.max(0,previousRequest+80-Date.now());previousRequest=Date.now()+wait;if(wait)await delay(wait);}
+  else previousRequest=Date.now();
+  return await request(path);
+ }finally{activeRequests--;}
+}
+async function request(path){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),55000);
  try {
   const response=await fetch(path,{signal:controller.signal,cache:"no-store"});
@@ -548,12 +558,12 @@ async function refresh(once=false){
   const batch=GPS.chooseRoutes(gpsPool().values(),s.buses.values(),selectedVehicleId,
     gpsCursor,cfg.routeBatch);
   gpsCursor=batch.cursor;
-  for(const id of batch.ids){
-   if((!s.poll&&!once)||s.running||document.hidden)break;
+  await GPS.pool(batch.ids,GPS.PARALLEL,async id=>{
+   if((!s.poll&&!once)||s.running||document.hidden)return;
    try{await getVehicles(id,false);ok++;}
    catch(e){failures++;eventLog("Falha de GPS no itinerário "+id+": "+e.message,"warn");}
    queries++;
-  }
+  });
   if(ok){s.mode="live";tag("GPS · ÚLTIMAS CONSULTAS AO SIU");}
   paint();
   if(queries){
@@ -709,10 +719,11 @@ async function searchLines(){
   refreshWatchRoutes();
   const routes=[...watch.routes].slice(0,24);
   let ok=0;
-  for(const [i,route] of routes.entries()){
-   lineInfo("Consultando GPS: itinerário "+(i+1)+" de "+routes.length+"…");
+  let done=0;
+  await GPS.pool(routes,GPS.PARALLEL,async route=>{
    try{await getVehicles(route,false);ok++;}catch(e){eventLog("Falha de GPS no itinerário "+route+": "+e.message,"warn");}
-  }
+   lineInfo("Consultando GPS: "+(++done)+" de "+routes.length+" itinerários…");
+  });
   if(ok){s.mode="live";tag("GPS · LINHAS "+wanted.join(", "));}
   paint();fit();void drawRouteLines();
   const recent=[...s.buses.values()].filter(v=>isWatched(v)&&isRecent(v)).length;
