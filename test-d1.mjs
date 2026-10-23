@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import worker from "./src/worker.js";
-import {ensureDb,HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus,lookupVehicle,listSearchRoutes} from "./src/d1-memory.js";
+import {ensureDb,HAS_DB,saveLines,saveRoutes,saveVehicles,saveSchedule,readSchedule,getMemory,dbStatus,lookupVehicle,listSearchRoutes,readVehicleLines} from "./src/d1-memory.js";
 
 class MockD1 {
  constructor(){
-  this.tables={lines:new Map(),routes:new Map(),vehicles:new Map(),schedules:new Map()};
+  this.tables={lines:new Map(),routes:new Map(),vehicles:new Map(),schedules:new Map(),vehicleLines:new Map()};
   this.statements=[];
   this.schemaExists=false;
   this.schemaProbes=0;
@@ -25,6 +25,12 @@ class MockD1 {
       t.routes.set(v[0],{id:v[0],updated_at:v[1]});
     }else if(sql.includes("INSERT INTO fb_vehicles")){
       t.vehicles.set(v[0],{id:v[0],linha:v[1],lat:v[2],lon:v[3],rumo:v[4],itinerario:v[5],observed_at:v[6]});
+    }else if(sql.includes("INSERT INTO fb_vehicle_lines")){
+      const key=v[0]+"|"+v[1],old=t.vehicleLines.get(key);
+      if(!old)t.vehicleLines.set(key,{vehicle_id:v[0],line:v[1],first_seen:v[2],last_seen:v[3]});
+      else if(old.last_seen<=v[3]-1800000)old.last_seen=v[3];
+    }else if(sql.startsWith("DELETE FROM fb_vehicle_lines")){
+      for(const [k,r] of t.vehicleLines)if(r.last_seen<v[0])t.vehicleLines.delete(k);
     }else if(sql.includes("INSERT INTO fb_schedules")){
       t.schedules.set(v[0],{line_id:v[0],payload:v[1],updated_at:v[2]});
     }
@@ -57,6 +63,7 @@ class MockD1 {
     if(sql.startsWith("SELECT id FROM fb_routes ORDER BY"))rows=[...t.routes.values()].sort((a,b)=>b.updated_at-a.updated_at||String(a.id).localeCompare(String(b.id)));
     else if(sql.includes("FROM fb_lines"))rows=[...t.lines.values()];
     else if(sql.includes("FROM fb_routes"))rows=[...t.routes.values()].sort((a,b)=>b.updated_at-a.updated_at);
+    else if(sql.includes("FROM fb_vehicle_lines"))rows=[...t.vehicleLines.values()].filter(r=>r.last_seen>=this.args[0]).sort((a,b)=>b.last_seen-a.last_seen);
     else if(sql.includes("FROM fb_vehicles"))rows=[...t.vehicles.values()].filter(v=>v.observed_at>=this.args[0]).sort((a,b)=>b.observed_at-a.observed_at);
     else throw new Error("SQL mock unsupported: "+sql);
     return {results:rows};
@@ -76,7 +83,7 @@ await ensureDb(db);
 await ensureDb(db);
 assert.equal(db.schemaProbes,1,"Schema should be probed once per isolate");
 const ddlCount=db.statements.filter(x=>x.sql.startsWith("CREATE ")).length;
-assert.equal(ddlCount,5,"No existing DB: create schema once");
+assert.equal(ddlCount,7,"No existing DB: create schema once");
 const now=Date.now();
 await saveLines(db,[{id:"12",numero:"001",nome:"Centro"},{id:"13",numero:"002",nome:"Tomba"}]);
 await saveRoutes(db,["90","91","90","../../etc"]);
@@ -89,6 +96,12 @@ await saveVehicles(db,[{id:"400",linha:"001",lat:-12.25,lon:-38.95,rumo:42,itine
 const writesBefore=db.statements.filter(x=>x.sql.includes("INSERT INTO fb_vehicles")).length;
 await saveVehicles(db,[{id:"400",linha:"001",lat:-12.25,lon:-38.95,rumo:42,itinerario:"90"}],"90");
 assert.equal(db.statements.filter(x=>x.sql.includes("INSERT INTO fb_vehicles")).length,writesBefore,"Throttle unchanged vehicle writes");
+const lineWrites=()=>db.statements.filter(x=>x.sql.includes("INSERT INTO fb_vehicle_lines")).length;
+assert.equal(lineWrites(),1,"One line-history row for the valid bus");
+assert.ok(db.statements.some(x=>x.sql.startsWith("DELETE FROM fb_vehicle_lines")),"Line history older than 7 days is pruned");
+const history=await readVehicleLines(db);
+assert.deepEqual(history.veiculos.map(v=>[v.id,v.linhas.map(l=>l.linha)]),[["400",["001"]]]);
+assert.ok(db.statements.filter(x=>x.sql.includes("fb_vehicle_lines")).every(x=>!/lat|lon/.test(x.sql)),"Line history never stores coordinates");
 await saveSchedule(db,"12",[{origem:"Centro",tipoDia:"Dia util",horario:"06:20"}]);
 const found=await readSchedule(db,"12");
 assert.equal(found.horarios[0].horario,"06:20");
@@ -139,6 +152,9 @@ const queriesAfterSnapshot=db.readQueries;
 const savedAgain=await worker.fetch(new Request(reqRoot+"/api/memory/snapshot"),env,ctx);
 assert.equal((await savedAgain.json()).itinerarios.length,2);
 assert.equal(db.readQueries,queriesAfterSnapshot,"Snapshot cache avoids repetitive D1 reads");
+const lineHistory=await worker.fetch(new Request(reqRoot+"/api/memory/vehicle-lines"),env,ctx);
+assert.equal(lineHistory.status,200);
+assert.equal((await lineHistory.json()).veiculos[0].linhas[0].linha,"001");
 const without=await worker.fetch(new Request(reqRoot+"/api/memory/snapshot"),{FSA_SIU_CITY:"null"},ctx);
 assert.equal(without.status,503);
 const status=await worker.fetch(new Request(reqRoot+"/api/status"),env,ctx);

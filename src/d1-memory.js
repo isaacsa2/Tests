@@ -1,4 +1,5 @@
 // FeiraBus shared D1 storage. Last observed GPS location only, never trip history.
+// fb_vehicle_lines keeps which lines each bus served (no coordinates), for 7 days.
 // Keep D1 traffic bounded even when many users query the SIU simultaneously.
 let schemaPromise=null;
 const routeMemo=new Set();
@@ -7,6 +8,10 @@ let linesMemoAt=0;
 const lineWindowMs=6*60*60*1000;
 const vehicleWindowMs=5*60*1000;
 const scheduleWindowMs=30*60*1000;
+const lineHistoryWindowMs=30*60*1000;
+const lineHistoryKeepMs=7*24*3600000;
+const lineHistoryMemo=new Map();
+let lineHistoryPrunedAt=0;
 const now=()=>Date.now();
 const validId=v=>typeof v==="string"&&/^[A-Za-z0-9_-]{1,32}$/.test(v);
 export const HAS_DB=env=>!!env?.FEIRABUS_DB;
@@ -16,14 +21,17 @@ export async function ensureDb(db){
  if(!schemaPromise){
   // Reuse one promise per Worker isolate: repeated requests must not issue 5 DDLs.
   schemaPromise=(async()=>{
-   const present=await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fb_lines' LIMIT 1").first();
+   // Probe the newest table: older databases already have fb_lines but not fb_vehicle_lines.
+   const present=await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fb_vehicle_lines' LIMIT 1").first();
    if(present)return;
    await db.batch([
      db.prepare("CREATE TABLE IF NOT EXISTS fb_lines (id TEXT PRIMARY KEY NOT NULL, number TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)"),
      db.prepare("CREATE TABLE IF NOT EXISTS fb_routes (id TEXT PRIMARY KEY NOT NULL, updated_at INTEGER NOT NULL)"),
      db.prepare("CREATE TABLE IF NOT EXISTS fb_vehicles (id TEXT PRIMARY KEY NOT NULL, line TEXT NOT NULL DEFAULT '', lat REAL NOT NULL, lon REAL NOT NULL, heading REAL, itinerary TEXT, observed_at INTEGER NOT NULL)"),
      db.prepare("CREATE INDEX IF NOT EXISTS fb_vehicles_last_seen ON fb_vehicles(observed_at)"),
-     db.prepare("CREATE TABLE IF NOT EXISTS fb_schedules (line_id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+     db.prepare("CREATE TABLE IF NOT EXISTS fb_schedules (line_id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
+     db.prepare("CREATE TABLE IF NOT EXISTS fb_vehicle_lines (vehicle_id TEXT NOT NULL, line TEXT NOT NULL, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY (vehicle_id,line))"),
+     db.prepare("CREATE INDEX IF NOT EXISTS fb_vehicle_lines_last_seen ON fb_vehicle_lines(last_seen)")
    ]);
   })().catch(error=>{schemaPromise=null;throw error;});
  }
@@ -79,6 +87,22 @@ export async function saveVehicles(db,vehicles,route=null){
    ).bind(id,String(row.linha??"").slice(0,70),row.lat,row.lon,
     Number.isFinite(row.rumo)?row.rumo:null,validId(itinerary)?itinerary:null,at);
   });
+  // Line history: write only when a bus changes line or every 30 min per (bus,line).
+  for(const [id,row] of unique){
+   const line=String(row.linha??"").trim().toUpperCase();
+   if(!/^[A-Z0-9-]{1,12}$/.test(line))continue;
+   const memo=lineHistoryMemo.get(id);
+   if(memo&&memo.line===line&&at-memo.at<lineHistoryWindowMs)continue;
+   statements.push(db.prepare(
+    "INSERT INTO fb_vehicle_lines (vehicle_id,line,first_seen,last_seen) VALUES (?,?,?,?) ON CONFLICT(vehicle_id,line) DO UPDATE SET last_seen=excluded.last_seen WHERE fb_vehicle_lines.last_seen <= excluded.last_seen - 1800000"
+   ).bind(id,line,at,at));
+   if(lineHistoryMemo.size>3000)lineHistoryMemo.clear();
+   lineHistoryMemo.set(id,{line,at});
+  }
+  if(at-lineHistoryPrunedAt>6*3600000){
+   statements.push(db.prepare("DELETE FROM fb_vehicle_lines WHERE last_seen < ?").bind(at-lineHistoryKeepMs));
+   lineHistoryPrunedAt=at;
+  }
   await writeChunks(db,statements);
   if(vehicleMemo.size>3000)vehicleMemo.clear();
   for(const id of unique.keys())vehicleMemo.set(id,at);
@@ -139,6 +163,21 @@ export async function lookupVehicle(db,prefix,maxAgeMs=48*3600000){
   rumo:row.rumo==null?null:Number(row.rumo),itinerario:row.itinerario||null,
   consultadoEm:new Date(Number(row.observed_at)).toISOString(),
   origem:"d1",historico:true};
+}
+export async function readVehicleLines(db){
+ await ensureDb(db);
+ const rows=await db.prepare("SELECT vehicle_id,line,first_seen,last_seen FROM fb_vehicle_lines WHERE last_seen>=? ORDER BY last_seen DESC LIMIT 3000")
+  .bind(now()-lineHistoryKeepMs).all();
+ const byBus=new Map();
+ for(const r of rows.results||[]){
+  const id=String(r.vehicle_id);
+  if(!validId(id))continue;
+  if(!byBus.has(id))byBus.set(id,{id,linhas:[]});
+  byBus.get(id).linhas.push({linha:String(r.line),primeiraVez:Number(r.first_seen),ultimaVez:Number(r.last_seen)});
+ }
+ return {origem:"Cloudflare D1",janelaDias:7,
+  aviso:"Linhas em que cada carro apareceu nas consultas ao SIU. Não é escala oficial nem registro completo.",
+  veiculos:[...byBus.values()]};
 }
 export async function listSearchRoutes(db){
  await ensureDb(db);
