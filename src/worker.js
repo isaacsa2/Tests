@@ -5,7 +5,18 @@ const BOUNDS = {minLat:-13.2,maxLat:-11.7,minLon:-39.8,maxLon:-38.3};
 const inflight = new Map();
 let jsonpCounter = 0;
 const TIMEOUT_MS = 45000; // SIU Mobile executaJson() usa 45 segundos.
-let lastCall = 0;
+// Até 8 consultas simultâneas ao SIU por isolate, com 60 ms entre inícios.
+// Substitui a fila de 1,3 s, que deixava cada consulta esperar a anterior.
+const MAX_UPSTREAM=8,UPSTREAM_GAP_MS=60;
+let activeUpstream=0,lastUpstreamStart=0;
+async function acquireUpstream(){
+  // Espera por sondagem (sem promessas compartilhadas entre requisições do Worker).
+  while(activeUpstream>=MAX_UPSTREAM)await new Promise(r=>setTimeout(r,40));
+  activeUpstream++;
+  const wait=Math.max(0,lastUpstreamStart+UPSTREAM_GAP_MS-Date.now());
+  lastUpstreamStart=Date.now()+wait;
+  if(wait)await new Promise(r=>setTimeout(r,wait));
+}
 const json = (body,status=200) => new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
 const bad = (message,status=400) => Object.assign(new Error(message),{status});
 function remember(env,ctx,work){
@@ -114,27 +125,27 @@ async function upstream(route,callback,ttl,ctx){
   if(cached)return cached.json();
   if(inflight.has(route))return inflight.get(route);
   const promise=(async()=>{
-    const wait=Math.max(0,1300-(Date.now()-lastCall));
-    if(wait)await new Promise(r=>setTimeout(r,wait));
-    lastCall=Date.now();
     // Formato gerado pelo jQuery 1.10.2 no Cordova: ?callback=jQuery...&_=timestamp
     const callbackName="jQuery"+Date.now()+ "_" + (++jsonpCounter);
     const upstreamUrl=new URL(route,BASE);
     upstreamUrl.searchParams.set("callback",callbackName);
     upstreamUrl.searchParams.set("_",String(Date.now()));
-    let response;
-    try {
-      response=await fetch(upstreamUrl.toString(),{
-        method:"GET", signal:AbortSignal.timeout(TIMEOUT_MS),
-        headers:{Accept:"*/*"}
-      });
-    }catch(e) {
-      const timedOut=e?.name==="TimeoutError"||e?.name==="AbortError";
-      throw bad(timedOut?"SIU demorou mais de 45 segundos":"SIU inacessivel por HTTP/6060; conectividade real nao confirmada",504);
-    }
-    if(!response.ok)throw bad("SIU retornou HTTP "+response.status,502);
-    if(Number(response.headers.get("content-length")||0)>2000000)throw bad("Resposta muito grande",502);
-    const raw=await response.text();
+    let response,raw;
+    await acquireUpstream();
+    try{
+      try {
+        response=await fetch(upstreamUrl.toString(),{
+          method:"GET", signal:AbortSignal.timeout(TIMEOUT_MS),
+          headers:{Accept:"*/*"}
+        });
+      }catch(e) {
+        const timedOut=e?.name==="TimeoutError"||e?.name==="AbortError";
+        throw bad(timedOut?"SIU demorou mais de 45 segundos":"SIU inacessivel por HTTP/6060; conectividade real nao confirmada",504);
+      }
+      if(!response.ok)throw bad("SIU retornou HTTP "+response.status,502);
+      if(Number(response.headers.get("content-length")||0)>2000000)throw bad("Resposta muito grande",502);
+      raw=await response.text();
+    }finally{activeUpstream--;}
     if(raw.length>2000000)throw bad("Resposta muito grande",502);
     const result=decode(raw,callbackName,callback);
     // Timestamp of the upstream HTTP fetch, preserved in cache to avoid implying cached GPS is new.
@@ -222,7 +233,7 @@ async function cachedSharedRead(key,seconds,loader,ctx){
 }
 async function action(url,env,ctx){
   const p=url.pathname,city=ident(env.FSA_SIU_CITY??"null"),q=url.searchParams;
-  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-nearby-notices-v10",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","stops-nearby","route-stops","notices","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
+  if(p==="/api/status")return {projeto:"FeiraBus",gateway:"configurado",protocolo:"jsonp-compativel",timeoutMs:TIMEOUT_MS,versaoAppReferencia:"1.29.1",versao:"2026-10-23-fast-batches-v11",gpsCacheSeconds:{veiculo:12,itinerario:20},d1Configurada:HAS_DB(env),recursos:["lines","sublines","stops","stops-nearby","route-stops","notices","predictions","vehicles","vehicle","geometry","schedule"],worker:"tests",siuOnline:"nao verificado",frotaIntegralGarantida:false};
   if(p==="/api/memory/status"){
     if(!HAS_DB(env))return {configured:false,initialized:false,erro:"Binding FEIRABUS_DB ausente"};
     try{
@@ -371,7 +382,7 @@ async function action(url,env,ctx){
     return {linha:n,diagnostico:out};
   }
   if(p==="/api/predictions"){
-    const n=ident(q.get("stop")),d=await upstream("V3/buscarPrevisoes/"+n+"/false/0/"+city+"/retornoJSON","retornoJSON",180,ctx);
+    const n=ident(q.get("stop")),d=await upstream("V3/buscarPrevisoes/"+n+"/false/0/"+city+"/retornoJSON","retornoJSON",30,ctx);
     const previsoes=success(d)?array(d.previsoes).filter(x=>x?.sgLin!=="Sem Dados").map(x=>({
       itinerario:x?.codItinerario==null?null:String(x.codItinerario),
       linha:String(x?.sgLin??"").slice(0,50),carro:String(x?.numVeicGestor??"").slice(0,40),

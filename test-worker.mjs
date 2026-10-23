@@ -167,3 +167,27 @@ assert.equal((await get("/api/lines","https://site-externo.invalid"))[0],403);
 assert.equal((await get("/api/unknown"))[0],404);
 const page=await worker.fetch(new Request("https://exemplo.invalid/"),env,ctx);assert.equal(await page.text(),"OK");
 console.log("OK: testes com callback dinâmico JSONP, init, linhas fragmentadas, GPS, cache e rotas.");
+
+// Velocidade com limite: 20 previsões ao mesmo tempo nunca passam de 8 consultas simultâneas ao SIU
+// e terminam bem antes da fila antiga (20 × 1,3 s = 26 s).
+{
+ let active=0,peak=0;
+ const plain=globalThis.fetch;
+ globalThis.fetch=async url=>{
+  active++;peak=Math.max(peak,active);
+  await new Promise(r=>setTimeout(r,500)); // SIU real: ~1 s por consulta
+  active--;
+  const cb=new URL(String(url)).searchParams.get("callback");
+  return new Response(cb+"("+JSON.stringify({sucesso:true,previsoes:[]})+");");
+ };
+ cache.clear();
+ const t0=Date.now();
+ const codes=await Promise.all(Array.from({length:20},(_,i)=>get("/api/predictions?stop="+(9000+i)).then(r=>r[0])));
+ const took=Date.now()-t0;
+ globalThis.fetch=plain;
+ assert.ok(codes.every(c=>c===200));
+ assert.ok(peak<=8,"no máximo 8 consultas simultâneas ao SIU (pico "+peak+")");
+ assert.ok(peak>=4,"consultas devem andar em paralelo (pico "+peak+")");
+ assert.ok(took<3000,"20 previsões em menos de 3 s (levou "+took+" ms)");
+ console.log("OK: 20 previsões em "+took+" ms, pico de "+peak+" consultas simultâneas ao SIU.");
+}

@@ -263,3 +263,11 @@ Rotas reproduzidas do app SIU Mobile 1.29.2, **somente leitura** de dados públi
 - Avisos são exibidos **sempre como texto** (o APK original os insere como HTML).
 - `/api/diagnostics/siu?kind=nearby|routeStops|notices|stopNotices` mostra o formato cru dessas consultas para conferência após o deploy; aceita só essa lista fechada.
 - **Fora do FeiraBus, de propósito:** botão de pânico (`emiteAlarmePanico`, `buscarAlarmesPanico`), alarme de desembarque PNE (`emiteAlarmeDesembarquePNE`), consulta de cartão PNE (`pesquisaCartaoPNE`), favoritos do servidor e chamados PCD. Disparam ações reais ou envolvem dados pessoais; `test-ui.mjs` falha se algum aparecer no código.
+
+## Velocidade: rodadas de 20/30/40 com paralelismo limitado
+
+- **Worker:** a fila de 1,3 s entre consultas ao SIU virou um limite de **8 consultas simultâneas por isolate, com 60 ms entre inícios**. Teste: 20 previsões em ~1,8 s (antes ~26 s), pico de 8 simultâneas.
+- **Previsões** ficam 30 s em cache (antes 180 s): dados mais frescos a cada sincronização.
+- **CCO:** sem a espera de 1,6 s por consulta; no máximo **6 consultas simultâneas** por navegador. GPS automático em rodadas de **20 / 30 / 40 itinerários** (intervalos de 15 / 30 / 60 s), e “GPS por linha” consulta os itinerários em paralelo.
+- **Passageiro:** “Sincronizar linha toda” em **lotes de 30 pontos, 6 por vez**; o mapa da linha carrega trajetos e ônibus em paralelo. Medido com dados reais: linha 007 (76 pontos) de 97 s para **17 s**, ainda com o Worker anterior publicado.
+- O SIU nunca recebe mais que 6 consultas simultâneas de um mesmo aparelho; disparar 30–40 de uma vez poderia bloquear o Worker para todos.
