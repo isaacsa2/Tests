@@ -7,7 +7,6 @@ const memory=globalThis.FeiraBusMemory;
 const checkedThisVisit=new Set();
 let memoryReady=false,memoryAvailable=false,saveTimer=null,previousRequest=0;
 const map=L.map("map",{zoomControl:true}).setView([-12.265,-38.965],12);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contribuidores"}).addTo(map);
 const pins=L.layerGroup().addTo(map), linesLayer=L.layerGroup().addTo(map);
 let selectedVehicleId=null;
 const sessionEvents=[];
@@ -19,6 +18,16 @@ const streetTiles=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.pn
  maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 });
 darkTiles.addTo(map);
+let darkTileFailures=0;
+darkTiles.on("tileerror",()=>{
+ darkTileFailures++;
+ if(darkTileFailures>=5&&map.hasLayer(darkTiles)){
+  map.removeLayer(darkTiles);
+  streetTiles.addTo(map);
+  el("mapTheme").value="streets";
+  eventLog("Mapa escuro indisponível; usando mapa de ruas como alternativa.","warn");
+ }
+});
 function operationalClock(){
  const now=new Date();
  const options={timeZone:"America/Bahia",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false};
