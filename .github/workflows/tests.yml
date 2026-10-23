@@ -6,6 +6,7 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -17,6 +18,8 @@ jobs:
   browser:
     # Passageiro e CCO no Chromium (celular e PC), com API simulada a partir de respostas reais do SIU.
     runs-on: ubuntu-latest
+    # Sem limite, um apt travado na instalação do Chromium segura o job por até 6 h.
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -27,4 +30,5 @@ jobs:
       # Instalado só aqui: o deploy da Cloudflare não precisa de dependências de teste.
       - run: npm install --no-save --no-audit --no-fund playwright@1.56.1
       - run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
       - run: npm run test:browser
