@@ -24,7 +24,9 @@ globalThis.fetch=async function(url){
  else if(u.includes("/retornaSublinhasDaLinha/")){d.subLinhas=[{cod:"120",sgl:"001A",nom:"Variante"}];}
  else if(u.includes("/buscarParadasPorLinha/77/")){d.paradas=[{cod:"501",sent:"Bairro",end:"RUA A"},{cod:"502",sent:"Bairro",end:"RUA B"}];}
  else if(u.includes("/buscarParadasPorLinhaComCoordenadas/77/")){d.paradas=[{cod:"501",y:"-12,2610",x:"-38,9600",azimute:"90"},{cod:"502",y:"-23,5",x:"-46,6"}];}
- else if(u.includes("/V3/buscarParadasProximas/")){d.paradas=[{cod:"601",desc:"PRACA DA MATRIZ",siu:"P601",y:"-12,2700",x:"-38,9700",azimute:"180"},{cod:"602",desc:"LONGE",y:"-12,2800",x:"-38,9800"},{cod:"Sem Dados"}];}
+ else if(u.includes("/V3/buscarParadasProximas/")){d.paradas=[{cod:"601",desc:"PRACA DA MATRIZ",siu:"P601",y:"-12,2700",x:"-38,9700",azimute:"180"},{cod:"602",desc:"LONGE",y:"-12,2800",x:"-38,9800"},{cod:"Sem Dados"}];
+  d.postosVenda=["{'cod':'PV1','desc':'Banca do Centro','x':'-38,9702','y':'-12,2703','praca':'FSA'},{'cod':'PV2','desc':'Fora','x':-46.6,'y':-23.5}"];}
+ else if(u.includes("/retornaLinhasQueAtendemParada/")){d.linhas=[{cod_linha:10,num_linha:"007",descricao:"JARDIM BRASIL",cor:4},{cod_linha:11,num_linha:"07A",descricao:"COND. AZALEIAS"},{cod:"Sem Dados"}];}
  else if(u.includes("/buscarParadasPorItiComCoordenadas/")){d.paradas=[{cod:"701",desc:"INICIO",y:-12.25,x:-38.95},{cod:"702",desc:"FIM",y:-12.26,x:-38.94}];}
  else if(u.includes("/V3/buscarNotificacao/")){d.notificacao=["{'cod':'9','assunto':'Obra na Av. Getúlio','evento':'Linha 007 desviada.\\nPonto 5590 desativado.'},{'cod':'Sem Dados'}"];}
  else if(u.includes("/V3/verificaNotificacaoParada/")){d.notificacaoParada=u.includes("/5590/")?[{cod:"9",assunto:"Ponto desativado",evento:"<b>use</b> o ponto 5554"}]:[""];}
@@ -102,6 +104,12 @@ assert.ok(requests.some(x=>x.includes("V3/buscarParadasProximas/-38.97/-12.27/0/
 assert.deepEqual(nb.paradas.map(x=>[x.id,x.nome,x.codigoSIU]),[["601","PRACA DA MATRIZ","P601"],["602","LONGE",""]]);
 assert.ok(nb.paradas[0].distancia<nb.paradas[1].distancia);
 assert.equal((await get("/api/stops/nearby?lat=-23.5&lon=-46.6"))[0],400,"Fora da região não consulta o SIU");
+assert.deepEqual(nb.postosVenda.map(x=>[x.id,x.nome]),[["PV1","Banca do Centro"]],"Pontos de venda da mesma resposta, só dentro da região");
+assert.ok(nb.postosVenda[0].distancia<100);
+[,data]=await get("/api/stops/lines?stop=5590");
+assert.deepEqual(data.linhas,[{id:"10",numero:"007",nome:"JARDIM BRASIL"},{id:"11",numero:"07A",nome:"COND. AZALEIAS"}]);
+assert.ok(requests.some(x=>x.includes("/retornaLinhasQueAtendemParada/5590/0/retornoJSON")));
+assert.equal((await get("/api/stops/lines?stop=../x"))[0],400);
 assert.equal((await get("/api/stops/nearby?lat=abc&lon=1"))[0],400);
 [,data]=await get("/api/route-stops?itinerary=732");
 assert.deepEqual(data.paradas.map(x=>[x.id,x.lat]),[["701",-12.25],["702",-12.26]]);

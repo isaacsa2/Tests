@@ -152,3 +152,16 @@ footer{padding:20px 4px;font-size:11px;color:var(--dim);line-height:1.8}
 .notice-kicker{font-size:10px;font-weight:800;letter-spacing:1.4px;color:var(--yellow-text)}
 .nearby{margin-top:16px;border-top:1px solid var(--line);padding-top:14px;display:grid;gap:10px}
 .nearby-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.nearby-head small{flex:1;min-width:180px}
+
+/* Linhas do ponto, pontos de venda e alarmes */
+.stop-lines,.sale-points{display:grid;gap:8px;margin-top:10px}
+.stop-lines-chips{display:flex;flex-wrap:wrap;gap:6px}
+.line-chip{border:1px solid var(--line2);background:var(--panel2);color:var(--text);border-radius:999px;padding:6px 11px;font-family:var(--head);font-weight:600;font-size:15px;min-height:34px}
+.line-chip:hover{border-color:var(--yellow)}
+.sale-point{display:block;border:1px solid var(--line);border-radius:10px;background:var(--field);padding:10px 12px;text-decoration:none;color:var(--text)}
+.sale-point strong{display:block;font-size:14px}.sale-point small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.alarm-list{display:grid;gap:8px;margin-bottom:12px;padding:10px;border-radius:12px;border:1px solid var(--yellow);background:var(--panel2)}
+.alarm{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px}
+.alarm-form{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:13px;color:var(--muted);width:100%}
+/* O atributo hidden sempre vence o display dos componentes (ex.: .alarm-list é grid). */
+[hidden]{display:none!important}

@@ -83,7 +83,7 @@ for(const name of [...passengerJS.matchAll(/\bid\("([^"]+)"\)/g)].map(m=>m[1]))
 assert.ok(passengerJS.includes("/api/stops?line=")&&passengerJS.includes("function groupStops(")&&passengerJS.includes("function selectOrigin("),"Paradas por origem ausentes");
 assert.ok(!passengerJS.includes("showSchedule("),"Regressão: função inexistente ao limpar a linha");
 assert.ok(passengerCss.includes("@media(min-width:1024px)")&&passengerCss.includes("@media(min-width:700px)"),"Layout PC/celular ausente");
-assert.ok(serviceWorker.includes('"feirabus-passenger-v6"'),"Cache do PWA precisa nova versão após mudar a interface");
+assert.ok(serviceWorker.includes('"feirabus-passenger-v7"'),"Cache do PWA precisa nova versão após mudar a interface");
 console.log("OK: passageiro com origens, pontos e layout responsivo.");
 
 // CCO: modo celular por abas e filtro "GPS por linha".

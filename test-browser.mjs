@@ -23,12 +23,15 @@ function api(u){
  const q=u.searchParams,p=u.pathname;
  if(p==="/api/lines")return lines;
  if(p==="/api/sublines")return {sublinhas:[]};
- if(p==="/api/stops")return q.get("line")==="10"?{paradas:stops.paradas.map((x,i)=>i<3?{...x,lat:-12.27+i*.001,lon:-38.97}:x)}:{paradas:[]};
+ // Como no SIU real: a lista da linha vem sem coordenadas; as paradas dos itinerários trazem.
+ if(p==="/api/stops")return q.get("line")==="10"?stops:{paradas:[]};
+ if(p==="/api/stops/lines")return {parada:q.get("stop"),linhas:[{id:"10",numero:"007",nome:"JARDIM BRASIL"},{id:"5",numero:"001",nome:"TOMBA"}]};
  if(p==="/api/stops/nearby"){
   nearbyRequests.push(u.search);
-  return {paradas:[{id:"5590",nome:"Av. Jardim Brasil (SAIDA)",codigoSIU:"",sentido:"",lat:-12.2702,lon:-38.9701,distancia:40},{id:"341",nome:"Estr. Velha de Jaiba",codigoSIU:"",sentido:"",lat:-12.272,lon:-38.97,distancia:230}]};
+  return {paradas:[{id:"5590",nome:"Av. Jardim Brasil (SAIDA)",codigoSIU:"",sentido:"",lat:-12.2702,lon:-38.9701,distancia:40},{id:"341",nome:"Estr. Velha de Jaiba",codigoSIU:"",sentido:"",lat:-12.272,lon:-38.97,distancia:230}],
+   postosVenda:[{id:"PV1",nome:"Banca do Centro",lat:-12.2703,lon:-38.9702,distancia:60}]};
  }
- if(p==="/api/route-stops")return {itinerario:q.get("itinerary"),paradas:[{id:"5590",nome:"Av. Jardim Brasil (SAIDA)",lat:mid[1],lon:mid[0]}]};
+ if(p==="/api/route-stops")return {itinerario:q.get("itinerary"),paradas:stops.paradas.map((x,i)=>({id:x.id,nome:x.nome,lat:-12.27+i*.0005,lon:-38.97}))};
  if(p==="/api/notices")return {avisos:[{id:"9",assunto:"Obra na Av. Getúlio Vargas",texto:"Linha 007 desviada.\n<img src=x onerror=\"window.__xss=1\">"}]};
  if(p==="/api/notices/stop")return {avisos:q.get("stop")==="5590"?[{id:"10",assunto:"Ponto com obra",texto:"Embarque 20 m adiante."}]:[]};
  if(p==="/api/schedule")return q.get("line")==="10"?schedule:{linha:q.get("line"),horarios:[]};
@@ -97,10 +100,27 @@ try{
  await p.click("#nearbyList .fav button:has-text('Previsão')");
  await p.waitForSelector("#nearbyList .notice-box");
  assert.match(await p.locator("#nearbyList .notice-box").innerText(),/AVISO DA OPERADORA[\s\S]*Ponto com obra/);
- step("paradas perto de mim com aviso do ponto");
- await p.waitForFunction(()=>document.querySelectorAll("#lineSelect option").length>2);
- await p.selectOption("#lineSelect","10");
+ assert.match(await p.locator("#nearbyList .sale-points").innerText(),/PONTOS DE VENDA[\s\S]*Banca do Centro[\s\S]*cerca de 60 m/);
+ await p.waitForSelector("#nearbyList .stop-lines .line-chip");
+ assert.deepEqual(await p.locator("#nearbyList .line-chip").allInnerTexts(),["007","001"]);
+ step("pontos de venda e linhas do ponto");
+ await p.click("#nearbyList .fav >> nth=0 >> button:has-text('🔔')");
+ await p.click("#nearbyList .alarm-form button:has-text('5 min')");
+ await p.waitForFunction(()=>/🔔 .*chegando em Av\. Jardim Brasil.*5 min/.test(document.getElementById("feedback").textContent),null,{timeout:15000});
+ await p.waitForSelector("#alarmList",{state:"hidden",timeout:5000}); // alarme disparado sai da lista
+ await p.click("#nearbyList .fav >> nth=1 >> button:has-text('🔔')");
+ await p.click("#nearbyList .alarm-form button:has-text('3 min')");
+ // A primeira conferência é assíncrona: espera o texto "agora: 5 min" aparecer.
+ await p.waitForFunction(()=>/avisa a 3 min[\s\S]*agora: 5 min/.test(document.getElementById("alarmList").innerText),null,{timeout:10000});
+ assert.match(await p.locator("#alarmList").innerText(),/ALARMES ATIVOS/,"5 min > 3 min: continua aguardando");
+ await p.click("#alarmList .alarm button");
+ await p.waitForSelector("#alarmList",{state:"hidden",timeout:5000});
+ step("alarme toca na hora certa e espera quando ainda falta");
+ await p.click("#nearbyList .line-chip:has-text('007')");
  await p.waitForSelector(".origin-tab");
+ assert.equal(await p.inputValue("#lineSelect"),"10","tocar na linha do ponto abre a linha");
+ step("linha do ponto abre em Paradas");
+ step("paradas perto de mim com aviso do ponto");
  assert.equal(await p.locator(".origin-tab").count(),2);
  assert.match(await p.locator(".stop-name").first().innerText(),/Av\. Jardim Brasil/);
  step("origens e nomes das paradas");
@@ -109,7 +129,8 @@ try{
  const first=p.locator(".stop-panel .result").first();
  assert.match(await first.innerText(),/Esta linha/);
  await p.waitForSelector(".stop-panel .notice-box");
- assert.ok(await p.isVisible("#nearestStop"),"com coordenadas, 'Mais perto' nesta linha aparece");
+ await p.waitForSelector("#nearestStop:not([hidden])",{timeout:20000});
+ assert.ok(await p.isVisible("#nearestStop"),"coordenadas vindas dos itinerários ligam 'Mais perto' nesta linha");
  assert.match(await first.innerText(),/♿ Acessível \(SIU\)/,"tpAcess=1 mostra selo");
  assert.doesNotMatch(await p.locator(".stop-panel .result").nth(1).innerText(),/♿/,"tpAcess=0 não afirma nada");
  assert.equal(await p.evaluate(()=>location.hash),"#linha=007&parada=5590");
