@@ -41,3 +41,8 @@ assert.ok(serviceWorker.includes('url.pathname.startsWith("/api/")')&&serviceWor
 assert.ok(!fleet.includes("fetch(")&&fleet.includes('"15545"')&&fleet.includes('"32003"'),"Frota deve ser referência estática, não scraping");
 assert.ok(manifest.start_url==="/passageiro.html"&&manifest.icons.some(i=>i.sizes==="192x192")&&manifest.icons.some(i=>i.sizes==="512x512"),"Manifest precisa ícones PNG 192/512");
 for(const icon of manifest.icons.filter(i=>i.type==="image/png"))assert.ok(fs.existsSync("public"+icon.src),"Imagem PWA ausente: "+icon.src);
+
+// Regressao obrigatoria: frontend e Worker precisam compartilhar rota /api/schedule.
+const workerSource=fs.readFileSync("src/worker.js","utf8");
+assert.ok(workerSource.includes('if(p==="/api/schedule")'),"ERRO: front-end consulta horarios, mas Worker nao registra /api/schedule");
+assert.ok(workerSource.includes('V3/retornaQroLinha/'),"ERRO: Worker nao consulta o QRO do SIU");
