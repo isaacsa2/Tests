@@ -225,7 +225,7 @@ async function action(url,env,ctx){
       previsao:String(x?.prev??"").slice(0,110),
       destino:String(x?.apelidoLinha??"").slice(0,90),
       acessibilidade:String(x?.tpAcess??"").slice(0,15)
-    })):[]};
+    })):[];
     const itinerarios=previsoes.map(x=>x.itinerario).filter(Boolean);
     if(itinerarios.length)remember(env,ctx,db=>saveRoutes(db,itinerarios));
     return {previsoes};
