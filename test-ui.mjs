@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+const html=fs.readFileSync("public/index.html","utf8");
+const css=fs.readFileSync("public/assets/style.css","utf8");
+const app=fs.readFileSync("public/assets/app.js","utf8");
+const mem=fs.readFileSync("public/assets/memory.js","utf8");
+const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
+assert.equal(new Set(ids).size,ids.length,"IDs duplicados na interface");
+const required=["map","stateTag","clockNow","clockDate","sourceState","start","stop","clearMemory","memoryState","wide","poll","export","notice","totalCars","freshCars","recentCount","oldCount","totalLines","totalRoutes","coverage","stage","progressFill","busSearch","directNumber","direct","directResult","listTitle","listCount","vehicleList","mapInfo","fit","mapFullscreen","mapTheme","fleetStatus","fleetLine","vehicleDetail","detailRefresh","copyCoords","eventList","phaseLabel","checkpointTime","errorCount"];
+for(const id of required)assert.ok(ids.includes(id),"Campo CCO faltando: "+id);
+for(const part of ['id="mapa"','id="frota"','id="eventos"','id="config"'])assert.ok(html.includes(part),"Seção operacional faltando: "+part);
+for(const token of ["function paint(){","function uniqueVehicle(v)","function restore(){","async function run(){","async function direct(){","async function exportGeo(){","async function clearMemory()","function selectVehicle(","function renderEvents(","mapFullscreen","fleetStatus","fleetLine"])assert.ok(app.includes(token),"Fluxo do painel faltando: "+token);
+for(const token of ["/api/initialize","/api/lines","/api/stops","/api/predictions","/api/vehicles","/api/vehicle","/api/geometry"])assert.ok(app.includes(token),"Endpoint perdido: "+token);
+assert.ok(html.includes('/assets/memory.js')&&html.includes('/assets/app.js'),"Scripts de memória ou CCO não carregados");
+assert.ok(mem.includes("indexedDB")&&mem.includes("saveGeometry"),"Memória não preservada");
+assert.ok(css.includes("@media(max-width:740px)")&&css.includes(".map-panel.is-expanded"),"Layout responsivo incompleto");
+assert.ok(html.includes("Não é uma central oficial"),"Aviso de protótipo ausente");
+console.log("OK: CCO estrutural, controles, coleta SIU e memória.");

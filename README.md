@@ -115,3 +115,17 @@ Ao abrir novamente o site **no mesmo navegador e perfil**, o usuário verá "Mem
 **Idade dos dados:** veículos recuperados aparecem em cinza até serem consultados novamente nesta sessão; cada carro mostra a data/hora da última consulta HTTP, que não é a data garantida do GPS. Registros de carros com mais de 7 dias são descartados ao restaurar. O IndexedDB pode ser removido pelo próprio navegador por limpeza de dados, modo privado ou pressão de armazenamento.
 
 Teste: `npm test`, incluindo `test-memory.mjs`. Os testes simulam IndexedDB local e SIU. Não medem nem atestam atualidade das posições de ônibus.
+
+## Interface CCO (Centro de Controle Operacional)
+
+O layout do FeiraBus foi reformulado para uma central de monitoramento de ônibus, com:
+- Cabeçalho de operação e relógio no horário de Feira de Santana (America/Bahia);
+- Indicadores de carros conhecidos, consultados há menos de cinco minutos nesta sessão, históricos, linhas, itinerários e progresso;
+- Mapa Leaflet com estilo escuro CARTO e alternativa de ruas OpenStreetMap, enquadramento e modo expandido;
+- Frota com busca, filtros por linha e situação de atualização, seleção por marcador/lista e ficha detalhada;
+- Painel de eventos apenas de monitoramento da sessão local e erros de consulta, sem inventar ocorrências reais;
+- Controles de busca, varredura ampliada, atualização, exportação GeoJSON e memória IndexedDB preservados.
+
+Nota: 'consultado recentemente' é uma posição recebida na requisição HTTP desta sessão, não comprova o instante da medição GPS. Posições restauradas são históricas e ficam cinza. Protótipo independente, não oficial.
+
+A página usa bibliotecas de mapa externas e requer conexão para carregar os mapas-base. O teste automatizado de estrutura não substitui a validação visual no navegador.

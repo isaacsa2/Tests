@@ -9,6 +9,103 @@ let memoryReady=false,memoryAvailable=false,saveTimer=null,previousRequest=0;
 const map=L.map("map",{zoomControl:true}).setView([-12.265,-38.965],12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contribuidores"}).addTo(map);
 const pins=L.layerGroup().addTo(map), linesLayer=L.layerGroup().addTo(map);
+let selectedVehicleId=null;
+const sessionEvents=[];
+let previousLineOptions="";
+const darkTiles=L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{
+ maxZoom:20,subdomains:"abcd",attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+});
+const streetTiles=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+ maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+});
+darkTiles.addTo(map);
+function operationalClock(){
+ const now=new Date();
+ const options={timeZone:"America/Bahia",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false};
+ el("clockNow").textContent=new Intl.DateTimeFormat("pt-BR",options).format(now);
+ el("clockDate").textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",day:"2-digit",month:"2-digit",year:"numeric"}).format(now);
+}
+operationalClock();setInterval(operationalClock,1000);
+function stamp(value){
+ return Number.isFinite(Number(value))&&value?new Date(value).toLocaleString("pt-BR"):"Sem registro";
+}
+function isRecent(v){
+ return s.mode!=="demo"&&checkedThisVisit.has(String(v.id))&&Number.isFinite(v.lastSeen)&&Date.now()-v.lastSeen<=300000;
+}
+function eventLog(message,level="info"){
+ const now=Date.now();
+ if(sessionEvents[0]?.message===message&&now-sessionEvents[0].at<20000)return;
+ sessionEvents.unshift({message,level,at:now});
+ if(sessionEvents.length>18)sessionEvents.pop();
+ renderEvents();
+}
+function renderEvents(){
+ const list=el("eventList");list.replaceChildren();
+ if(!sessionEvents.length){
+  const p=document.createElement("p");p.className="muted";p.textContent="Nenhum evento registrado nesta sessão.";list.append(p);return;
+ }
+ for(const item of sessionEvents.slice(0,6)){
+  const row=document.createElement("div");row.className="event-row "+(item.level==="error"?"error":item.level==="warn"?"warn":"");
+  const dot=document.createElement("span");dot.className="event-indicator";dot.setAttribute("aria-hidden","true");
+  const column=document.createElement("div"),message=document.createElement("strong"),time=document.createElement("small");
+  message.textContent=item.message;time.textContent=new Date(item.at).toLocaleTimeString("pt-BR")+" · Registro local";
+  column.append(message,time);row.append(dot,column);list.append(row);
+ }
+}
+function updateSource(){
+ const recentCount=[...s.buses.values()].filter(isRecent).length;
+ const demoMode=s.mode==="demo";
+ const label=demoMode?"DEMONSTRAÇÃO":recentCount?"CONSULTAS RECENTES":s.running?"CONSULTANDO SIU":"DADOS HISTÓRICOS";
+ el("stateTag").replaceChildren();
+ const dot=document.createElement("span");dot.className="status-dot";dot.setAttribute("aria-hidden","true");
+ el("stateTag").append(dot,document.createTextNode(label));
+ el("stateTag").classList.toggle("is-live",!!recentCount);
+ el("sourceState").textContent=demoMode?"Fonte SIU • modo demonstração":s.running?"Fonte SIU • varredura em andamento":recentCount?"Fonte SIU • consultas recentes disponíveis":"Fonte SIU • aguardando novas posições";
+ el("sourceState").parentElement.classList.toggle("is-live",!!recentCount);
+ el("mapMode").textContent=demoMode?"SIMULAÇÃO":recentCount?"CONSULTAS RECENTES":"HISTÓRICO";
+}
+function syncLineOptions(){
+ const selector=el("fleetLine");
+ const lines=[...new Set([...s.buses.values()].map(v=>String(v.linha||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR",{numeric:true}));
+ const signature=lines.join("\u0000");
+ if(signature===previousLineOptions)return;
+ previousLineOptions=signature;
+ const current=selector.value;selector.replaceChildren();
+ const all=document.createElement("option");all.value="";all.textContent="Todas as linhas";selector.append(all);
+ for(const name of lines){
+  const option=document.createElement("option");option.value=name;option.textContent=name.slice(0,80);selector.append(option);
+ }
+ selector.value=lines.includes(current)?current:"";
+}
+function vehicleView(v,demonstration=false){
+ selectedVehicleId=String(v.id);
+ const fresh=!demonstration&&isRecent(v);
+ const old=!demonstration&&!fresh;
+ const detail=el("vehicleDetail");
+ detail.innerHTML='<div class="detail-top"><div><div class="panel-eyebrow">IDENTIFICAÇÃO</div><div class="detail-id" id="detail-id"></div></div><span class="detail-flag" id="detail-flag"></span></div><div class="detail-grid"><div><span>LINHA INFORMADA</span><strong id="detail-line"></strong></div><div><span>ITINERÁRIO</span><strong id="detail-route"></strong></div><div><span>LATITUDE</span><strong id="detail-lat"></strong></div><div><span>LONGITUDE</span><strong id="detail-lon"></strong></div><div><span>DIREÇÃO INFORMADA</span><strong id="detail-direction"></strong></div><div><span>ÚLTIMA CONSULTA</span><strong id="detail-time"></strong></div></div><p class="detail-footnote">Posição retornada pelo serviço ou restaurada do armazenamento local. O instante da medição GPS pode ser diferente do horário da consulta.</p>';
+ const fields={"detail-id":"CARRO "+v.id,"detail-line":v.linha||"Não informada","detail-route":v.itinerario||"Não informado","detail-lat":Number(v.lat).toFixed(5),"detail-lon":Number(v.lon).toFixed(5),"detail-direction":Number.isFinite(v.rumo)?v.rumo+"°":"Não informado","detail-time":demonstration?"Dados simulados":stamp(v.lastSeen)};
+ for(const [id,text] of Object.entries(fields))el(id).textContent=text;
+ const flag=el("detail-flag");flag.className="detail-flag"+(fresh?" recent":demonstration?" demo":"");
+ flag.textContent=demonstration?"DEMONSTRAÇÃO":old?"HISTÓRICO / ANTIGO":"CONSULTADO RECENTEMENTE";
+ el("detailRefresh").disabled=demonstration;
+ el("copyCoords").disabled=demonstration;
+}
+function selectVehicle(v,demonstration=false,zoom=true){
+ if(!v)return;
+ vehicleView(v,demonstration);
+ if(zoom)map.setView([v.lat,v.lon],Math.max(14,map.getZoom()));
+ paint();
+}
+function clearDetail(){
+ selectedVehicleId=null;
+ el("vehicleDetail").innerHTML='<div class="empty-detail"><span>◎</span><strong>Nenhum veículo selecionado</strong><p>Escolha um carro na lista ou clique em um marcador no mapa para inspecionar sua última posição conhecida.</p></div>';
+ el("detailRefresh").disabled=true;el("copyCoords").disabled=true;
+}
+function opPhase(){
+ if(s.running)return s.phase==="wide"?"Varredura ampliada":"Primeira passagem";
+ return s.phase==="done"?"Concluída":s.phase==="quick"||s.phase==="wide"?"Pausada":"Aguardando";
+}
+
 const isResumable=()=>["quick","wide"].includes(s.phase)&&s.lines.length>0;
 function snapshot(){
  return {
@@ -69,8 +166,14 @@ async function restore(){
   memoryReady=true;buttonState();paint();
  }
 }
-function say(t,error=false){el("notice").textContent=t;el("notice").classList.toggle("error",error);}
-function tag(t){el("stateTag").textContent=t;el("mapInfo").textContent=t;}
+function say(t,error=false){
+ el("notice").textContent=t;
+ el("notice").classList.toggle("error",error);
+ const isProgress=/^(Primeira passagem:|Varredura ampliada:|Exportando trajetos:)/.test(t);
+ if(error)eventLog(t,"error");
+ else if(!isProgress)eventLog(t,/interrompida|não confirmada|históric/i.test(t)?"warn":"info");
+}
+function tag(t){el("mapInfo").textContent=t;updateSource();}
 function uniqueVehicle(v){
  if(!v||!v.id||!Number.isFinite(Number(v.lat))||!Number.isFinite(Number(v.lon)))return;
  const key=String(v.id).trim();if(!key)return;
@@ -79,44 +182,72 @@ function uniqueVehicle(v){
  checkedThisVisit.add(key);scheduleSave();
 }
 function paint(){
- pins.clearLayers();
- const query=el("busSearch").value.trim().toLowerCase();
- const vehicles=[...s.buses.values()].filter(v=>[v.id,v.linha,v.itinerario].some(x=>String(x??"").toLowerCase().includes(query)));
- const all=s.mode==="demo"?demo:vehicles;
- if(s.mode==="demo")el("totalCars").textContent="3";
- else el("totalCars").textContent=s.buses.size;
- const recent=s.mode==="demo"?0:[...s.buses.values()].filter(v=>checkedThisVisit.has(v.id)&&v.lastSeen&&Date.now()-v.lastSeen<300000).length;
- el("freshCars").textContent=s.mode==="demo"?"Exemplos fictícios":recent+" consultados nesta sessão há menos de 5 min · "+s.buses.size+" conhecidos";
- el("totalLines").textContent=s.mode==="demo"?"—":s.lines.length;
- el("totalRoutes").textContent=s.mode==="demo"?"—":s.routes.size;
- el("coverage").textContent=s.mode==="demo"?"—":s.done+"/"+s.lines.length;
- el("stage").textContent=s.mode==="demo"?"Aguardando consulta real":s.errors+" falhas nas consultas";
- const list=el("vehicleList");list.replaceChildren();
- const visible=all.filter(v=>[v.id,v.linha,v.itinerario].some(x=>String(x??"").toLowerCase().includes(query)));
+ syncLineOptions();
+ const demoMode=s.mode==="demo", known=[...s.buses.values()];
+ const recent=known.filter(isRecent).length, stale=known.length-recent;
+ el("totalCars").textContent=demoMode?"3":known.length;
+ el("recentCount").textContent=demoMode?"—":recent;
+ el("oldCount").textContent=demoMode?"—":stale;
+ el("freshCars").textContent=demoMode?"Exemplos fictícios":recent+" consultados há até 5 min nesta sessão";
+ el("totalLines").textContent=demoMode?"—":s.lines.length;
+ el("totalRoutes").textContent=demoMode?"—":s.routes.size;
+ el("coverage").textContent=demoMode?"—":s.done+"/"+s.lines.length;
+ el("stage").textContent=demoMode?"Aguardando consulta":s.phase==="wide"?"Paradas adicionais":s.errors+" falhas na coleta";
+ el("progressFill").style.width=!s.lines.length?"0%":Math.min(100,s.done/s.lines.length*100)+"%";
+ el("errorCount").textContent=s.errors;
+ el("phaseLabel").textContent=opPhase();
+ el("checkpointTime").textContent=el("memoryState").textContent.replace(/^(Salva às |Restaurada · )/,"").slice(0,35);
+ updateSource();
+ const query=el("busSearch").value.trim().toLocaleLowerCase("pt-BR");
+ const mode=el("fleetStatus").value, line=el("fleetLine").value;
+ const original=demoMode?demo:known;
+ const visible=original.filter(v=>{
+  if(![v.id,v.linha,v.itinerario].some(x=>String(x??"").toLocaleLowerCase("pt-BR").includes(query)))return false;
+  if(line&&String(v.linha)!==line)return false;
+  if(!demoMode&&mode==="recent"&&!isRecent(v))return false;
+  if(!demoMode&&mode==="old"&&isRecent(v))return false;
+  if(demoMode&&mode!=="all")return false;
+  return true;
+ });
  el("listCount").textContent=visible.length;
- for(const v of all){
-  const old=s.mode==="demo"?false:!checkedThisVisit.has(v.id)||!v.lastSeen||Date.now()-v.lastSeen>300000;
-  const mark=L.circleMarker([v.lat,v.lon],{radius:8,color:old?"#64748b":"#006fbb",weight:2,fillColor:old?"#94a3b8":"#28a9fa",fillOpacity:.85});
-  const popup=document.createElement("div");
-  const name=document.createElement("strong");name.textContent="Carro "+v.id;popup.append(name);
-  const info=document.createElement("p");info.textContent="Linha: "+(v.linha||"não informada")+(v.itinerario?" · itinerário "+v.itinerario:"");popup.append(info);
-  const meta=document.createElement("small");meta.textContent=s.mode==="demo"?"POSIÇÃO FICTÍCIA":
-    (old?"MEMÓRIA / CONSULTA ANTIGA: ":"Consulta nesta sessão: ")+
-    (v.lastSeen?new Date(v.lastSeen).toLocaleString("pt-BR"):"sem registro");popup.append(meta);
-  mark.bindPopup(popup).addTo(pins);
+ pins.clearLayers();
+ for(const v of visible){
+  const fresh=isRecent(v);
+  const color=demoMode?"#e9b463":fresh?"#47c8ff":"#91a2b7";
+  const marker=L.circleMarker([v.lat,v.lon],{
+    radius:String(v.id)===selectedVehicleId?10:7,
+    color:String(v.id)===selectedVehicleId?"#fff":color,
+    weight:String(v.id)===selectedVehicleId?3:2,
+    fillColor:color,fillOpacity:.85
+  });
+  const popup=document.createElement("div"),name=document.createElement("strong"),info=document.createElement("p"),meta=document.createElement("small");
+  name.textContent="Carro "+v.id;
+  info.textContent="Linha: "+(v.linha||"não informada")+(v.itinerario?" · itinerário "+v.itinerario:"");
+  meta.textContent=demoMode?"DADOS FICTÍCIOS":fresh?"CONSULTADO NESTA SESSÃO: "+stamp(v.lastSeen):"HISTÓRICO / CONSULTA ANTIGA: "+stamp(v.lastSeen);
+  popup.append(name,info,meta);
+  marker.bindPopup(popup).addTo(pins);
+  marker.on("click",()=>selectVehicle(v,demoMode,false));
  }
+ const list=el("vehicleList");list.replaceChildren();
  for(const v of visible.slice(0,300)){
-  const b=document.createElement("button");b.className="busItem";
-  const left=document.createElement("div"),title=document.createElement("b"),sub=document.createElement("span"),hint=document.createElement("small");
-  title.textContent="Carro "+v.id;
-  sub.textContent="Linha: "+(v.linha||"não informada");
-  const fresh=checkedThisVisit.has(v.id)&&Date.now()-v.lastSeen<300000;
-  hint.textContent=s.mode==="demo"?"Exemplo":fresh?"Consultado agora":"Histórico · "+(v.lastSeen?new Date(v.lastSeen).toLocaleString("pt-BR"):"sem data");
-  left.append(title,sub);b.append(left,hint);
-  b.addEventListener("click",()=>{map.setView([v.lat,v.lon],16);for(const layer of pins.getLayers()){if(layer.getLatLng().distanceTo(L.latLng(v.lat,v.lon))<2){layer.openPopup();break;}}});
+  const b=document.createElement("button");b.type="button";b.className="busItem"+(String(v.id)===selectedVehicleId?" selected":"");
+  const left=document.createElement("div"),title=document.createElement("b"),sub=document.createElement("span"),status=document.createElement("small");
+  title.textContent="CARRO "+v.id;
+  sub.textContent="Linha "+(v.linha||"não informada")+(v.itinerario?" · Itin. "+v.itinerario:"");
+  const recentConsult=isRecent(v);
+  status.className="bus-status "+(demoMode?"demo":recentConsult?"recent":"");
+  status.textContent=demoMode?"Simulado":recentConsult?"Recente":"Histórico";
+  left.append(title,sub);b.append(left,status);
+  b.addEventListener("click",()=>selectVehicle(v,demoMode));
   list.append(b);
  }
- if(!visible.length){const p=document.createElement("p");p.className="hint";p.textContent="Nenhum veículo corresponde à pesquisa.";list.append(p);}
+ if(!visible.length){
+  const p=document.createElement("p");p.className="hint";p.style.padding="16px";p.textContent="Nenhum veículo corresponde aos filtros.";list.append(p);
+ }
+ if(selectedVehicleId){
+  const v=original.find(x=>String(x.id)===selectedVehicleId);
+  if(v)vehicleView(v,demoMode);else clearDetail();
+ }
 }
 function fit(){const vals=s.mode==="demo"?demo:[...s.buses.values()];if(!vals.length)return;map.fitBounds(L.latLngBounds(vals.map(v=>[v.lat,v.lon])).pad(.20),{maxZoom:14});}
 async function api(path,urgent=false){
@@ -262,7 +393,7 @@ async function direct(){
   const d=await api("/api/vehicle?number="+encodeURIComponent(n),true);
   if(!d.veiculos?.length){el("directResult").textContent="Nenhuma posição válida retornada para "+n+".";return;}
   s.mode="live";for(const v of d.veiculos)uniqueVehicle(v);
-  paint();map.setView([d.veiculos[0].lat,d.veiculos[0].lon],16);
+  paint();selectVehicle(d.veiculos[0],false,true);map.setView([d.veiculos[0].lat,d.veiculos[0].lon],16);
   el("directResult").textContent="Carro "+n+" localizado na resposta da API (posição não necessariamente instantânea).";
   tag("CONSULTA DIRETA AO SIU");
   await checkpoint();
@@ -296,13 +427,50 @@ async function clearMemory(){
  try{
   if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}
   if(memoryAvailable)await memory.clear();
-  s.mode="demo";s.phase="new";s.lines=[];s.buses.clear();s.routes.clear();s.scanned.clear();
+  clearDetail();s.mode="demo";s.phase="new";s.lines=[];s.buses.clear();s.routes.clear();s.scanned.clear();
   s.geometry.clear();s.secondary=[];s.nextLineIndex=0;s.secondaryIndex=0;s.done=0;s.errors=0;s.poll=false;
   checkedThisVisit.clear();memoryLabel(memoryAvailable?"Memória limpa":"Indisponível");
   tag("MODO DEMONSTRAÇÃO");say("Memória local apagada. O monitor continua disponível para nova varredura.");
   buttonState();paint();
  }catch(e){memoryLabel("Erro ao limpar: "+e.message);}
 }
+el("fleetStatus").addEventListener("change",paint);
+el("fleetLine").addEventListener("change",paint);
+el("mapTheme").addEventListener("change",e=>{
+ if(e.target.value==="dark"){
+  if(map.hasLayer(streetTiles))map.removeLayer(streetTiles);
+  if(!map.hasLayer(darkTiles))darkTiles.addTo(map);
+ }else{
+  if(map.hasLayer(darkTiles))map.removeLayer(darkTiles);
+  if(!map.hasLayer(streetTiles))streetTiles.addTo(map);
+ }
+ pins.bringToFront?.();
+});
+function toggleMapExpanded(){
+ const panel=document.querySelector(".map-panel");
+ const on=!panel.classList.contains("is-expanded");
+ panel.classList.toggle("is-expanded",on);
+ document.body.classList.toggle("map-is-expanded",on);
+ el("mapFullscreen").setAttribute("aria-pressed",String(on));
+ el("mapFullscreen").textContent=on?"⤢ Fechar mapa":"⛶ Expandir";
+ setTimeout(()=>map.invalidateSize(),100);
+}
+el("mapFullscreen").addEventListener("click",toggleMapExpanded);
+document.addEventListener("keydown",e=>{
+ if(e.key==="Escape"&&document.querySelector(".map-panel").classList.contains("is-expanded"))toggleMapExpanded();
+});
+el("detailRefresh").addEventListener("click",()=>{
+ if(!selectedVehicleId||s.mode==="demo")return;
+ el("directNumber").value=selectedVehicleId;
+ direct();
+});
+el("copyCoords").addEventListener("click",async()=>{
+ const v=s.buses.get(String(selectedVehicleId));
+ if(!v)return;
+ const text=Number(v.lat).toFixed(6)+", "+Number(v.lon).toFixed(6);
+ try{await navigator.clipboard.writeText(text);eventLog("Coordenadas copiadas do carro "+v.id);}
+ catch{eventLog("Não foi possível copiar coordenadas neste navegador.","warn");}
+});
 el("clearMemory").addEventListener("click",clearMemory);
 el("busSearch").addEventListener("input",paint);
 el("direct").addEventListener("click",direct);
@@ -312,6 +480,7 @@ el("stop").addEventListener("click",()=>{s.stop=true;s.poll=false;say("Interrup�
 el("fit").addEventListener("click",fit);
 el("export").addEventListener("click",exportGeo);
 el("start").disabled=true;
+eventLog("Interface de controle carregada. Nenhuma ocorrência externa é presumida.");
 restore();
 paint();
 })();
