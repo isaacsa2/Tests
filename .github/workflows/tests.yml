@@ -17,7 +17,7 @@ jobs:
       - run: npm test
   browser:
     # Passageiro e CCO no Chromium (celular e PC), com API simulada a partir de respostas reais do SIU.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Sem limite, um apt travado na instalação do Chromium segura o job por até 6 h.
     timeout-minutes: 20
     permissions:

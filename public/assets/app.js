@@ -11,6 +11,7 @@ let memoryReady=false,memoryAvailable=false,saveTimer=null,previousRequest=0;
 let cloudSyncBusy=false;
 // Filtro "GPS por linha": linhas pedidas pelo operador e itinerários conhecidos delas.
 const watch={lines:[],routes:new Set(),busy:false,discoveredAt:new Map()};
+let allGpsBusy=false,allGpsCancel=false;
 const ROUTE_ID=/^[A-Za-z0-9_-]{1,32}$/;
 const map=L.map("map",{zoomControl:true}).setView([-12.265,-38.965],12);
 const pins=L.layerGroup().addTo(map), linesLayer=L.layerGroup().addTo(map);
@@ -416,7 +417,7 @@ async function scanStop(id){
  scheduleSave();
 }
 async function run(){
- if(s.running||!memoryReady)return;
+ if(s.running||allGpsBusy||!memoryReady)return;
  const resume=isResumable();
  // Só reiniciamos o checkpoint após obter um catálogo válido.
  // Um erro temporário na API não pode apagar rotas já descobertas.
@@ -539,7 +540,7 @@ function startGpsPolling(){
  if(!gpsBusy)void refresh();
 }
 async function refresh(once=false){
- if((!s.poll&&!once)||gpsBusy||s.running||document.hidden)return;
+ if((!s.poll&&!once)||gpsBusy||s.running||allGpsBusy||document.hidden)return;
  gpsBusy=true;
  el("gpsNow").disabled=true;
  const started=Date.now();
@@ -696,6 +697,7 @@ async function discoverLine(entry,line){
 async function searchLines(){
  const wanted=GPS.parseLineQuery(el("lineWatch").value);
  if(!wanted.length){setWatch([]);lineInfo("Digite uma ou mais linhas, ex.: 07A, 007, 300.",true);return;}
+ if(allGpsBusy){lineInfo("O GPS geral está em execução. Interrompa-o para buscar linhas específicas.",true);return;}
  if(s.running){lineInfo("A varredura da cidade está em andamento. Interrompa-a para buscar linhas específicas.",true);return;}
  if(watch.busy)return;
  watch.busy=true;el("lineWatchGo").disabled=true;
@@ -739,6 +741,97 @@ async function searchLines(){
  }catch(e){lineInfo("Falha na busca por linha: "+e.message,true);}
  finally{
   watch.busy=false;el("lineWatchGo").disabled=false;
+  if(el("poll").checked)startGpsPolling();
+ }
+}
+// Consulta geral sob demanda: descobre itinerários em todo o catálogo SIU,
+ // depois atualiza as posições conhecidas sem coletar geometrias nem paradas extras.
+async function searchAllGps(){
+ const button=el("allGpsGo"),status=el("allGpsState");
+ if(allGpsBusy){
+  allGpsCancel=true;
+  button.disabled=true;button.textContent="Interrompendo…";
+  status.textContent="Interrompendo após concluir as consultas em andamento…";
+  return;
+ }
+ if(s.running||watch.busy){
+  status.textContent="Aguarde o fim da varredura ou da busca por linha antes de iniciar o GPS geral.";
+  return;
+ }
+ allGpsBusy=true;allGpsCancel=false;
+ button.textContent="■ Interromper GPS geral";
+ el("lineWatchGo").disabled=true;
+ pauseGpsPolling();
+ let discovered=0,queried=0,ok=0,failures=0,routeIds=[];
+ try{
+  // Aguarda o lote de GPS já iniciado, sem misturar consultas concorrentes.
+  for(let i=0;gpsBusy&&i<240;i++)await delay(250);
+  if(gpsBusy)throw new Error("Outra atualização GPS continua ativa. Tente novamente.");
+  // Reconsulta o catálogo mesmo que a memória tenha só algumas linhas.
+  status.textContent="Atualizando o catálogo completo de linhas do SIU…";
+  let catalog=s.lines;
+  try{
+   const d=await api("/api/lines",true);
+   if(Array.isArray(d.linhas)&&d.linhas.length>=catalog.length)catalog=d.linhas;
+   else if(catalog.length)eventLog("SIU devolveu um catálogo menor; usando o catálogo conhecido de "+catalog.length+" linhas.","warn");
+  }catch(e){
+   if(!catalog.length)throw e;
+   eventLog("Catálogo temporariamente indisponível; usando "+catalog.length+" linhas conhecidas.","warn");
+  }
+  if(!catalog.length)throw new Error("Catálogo de linhas indisponível; não é possível consultar toda a cidade.");
+  if(!s.lines.length)s.lines=catalog;
+  // GPS geral realmente mostra o conjunto conhecido, sem manter filtros anteriores.
+  setWatch([]);
+  el("lineWatch").value="";
+  el("fleetLine").value="";
+  el("fleetStatus").value="all";
+  el("busSearch").value="";
+  lineInfo("Sem filtro de linha: exibindo a frota conhecida. GPS geral em andamento.");
+  status.textContent="GPS geral: descobrindo itinerários das "+catalog.length+" linhas…";
+  await GPS.pool(catalog,3,async entry=>{
+   if(allGpsCancel||document.hidden)return;
+   const line=GPS.normalizeLine(entry.numero);
+   if(line){
+    try{await discoverLine(entry,line);}
+    catch(e){failures++;eventLog("Falha ao descobrir a linha "+line+": "+e.message,"warn");}
+   }
+   discovered++;
+   status.textContent="GPS geral: "+discovered+"/"+catalog.length+" linhas examinadas · "+s.routes.size+" itinerários conhecidos.";
+  });
+  if(!allGpsCancel&&!document.hidden){
+   routeIds=[...s.routes].filter(id=>ROUTE_ID.test(id));
+   status.textContent="GPS geral: consultando "+routeIds.length+" itinerários com até "+GPS.PARALLEL+" requisições simultâneas…";
+   await GPS.pool(routeIds,GPS.PARALLEL,async id=>{
+    if(allGpsCancel||document.hidden)return;
+    try{await getVehicles(id,false);ok++;}
+    catch(e){failures++;eventLog("Falha de GPS no itinerário "+id+": "+e.message,"warn");}
+    queried++;
+    if(queried%10===0)paint();
+    status.textContent="GPS geral: "+queried+"/"+routeIds.length+" itinerários · "+ok+" consultas bem-sucedidas.";
+   });
+  }
+  if(ok){s.mode="live";tag("GPS GERAL · ÚLTIMAS CONSULTAS AO SIU");}
+  paint();
+  if(ok)fit();
+  const recent=[...s.buses.values()].filter(isRecent).length;
+  if(allGpsCancel||document.hidden){
+   status.textContent="GPS geral interrompido: "+discovered+"/"+catalog.length+" linhas e "+queried+" itinerários consultados. Resultados obtidos foram preservados.";
+  }else{
+   status.textContent="GPS geral concluído: "+discovered+"/"+catalog.length+" linhas, "+ok+"/"+queried+
+    " consultas GPS bem-sucedidas, "+recent+" veículos consultados recentemente."+
+    (failures?" "+failures+" falhas registradas.":"")+
+    " Posições podem ser anteriores à consulta; itinerários sem previsões podem não aparecer.";
+  }
+  eventLog("GPS geral: "+discovered+" linhas examinadas, "+ok+" consultas de itinerário bem-sucedidas.");
+  scheduleSave();
+  if(isMobile()&&ok)setView("mapa");
+ }catch(e){
+  status.textContent="Falha no GPS geral: "+e.message;
+  eventLog("Falha na consulta geral de GPS: "+e.message,"warn");
+ }finally{
+  allGpsBusy=false;allGpsCancel=false;
+  button.disabled=false;button.textContent="↻ Buscar GPS geral · todas as linhas";
+  el("lineWatchGo").disabled=false;
   if(el("poll").checked)startGpsPolling();
  }
 }
@@ -827,6 +920,7 @@ el("historySearch").addEventListener("input",renderHistory);
 el("historyRefresh").addEventListener("click",()=>void loadHistory(true));
 el("fleetLine").addEventListener("change",()=>void drawRouteLines());
 el("lineWatchGo").addEventListener("click",()=>void searchLines());
+el("allGpsGo").addEventListener("click",()=>void searchAllGps());
 el("lineWatch").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();void searchLines();}});
 // Modo celular: uma área por vez (Geral, Mapa, Frota, Eventos, Ajustes) com abas fixas embaixo.
 const mobileQuery=window.matchMedia("(max-width:740px)");
@@ -906,7 +1000,10 @@ el("gpsInterval").addEventListener("change",()=>{
 });
 el("gpsNow").addEventListener("click",()=>void refresh(true));
 document.addEventListener("visibilitychange",()=>{
- if(document.hidden){pauseGpsPolling();gpsInfo("GPS pausado: página em segundo plano.");}
+ if(document.hidden){
+  if(allGpsBusy){allGpsCancel=true;el("allGpsState").textContent="GPS geral interrompido: a página foi para segundo plano.";}
+  pauseGpsPolling();gpsInfo("GPS pausado: página em segundo plano.");
+ }
  else if(el("poll").checked)startGpsPolling();
 });
 el("sharedRefresh").addEventListener("click",hydrateSharedMemory);
