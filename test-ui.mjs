@@ -89,7 +89,8 @@ console.log("OK: passageiro com origens, pontos e layout responsivo.");
 // GPS geral: acionado separadamente, usa o catálogo completo e limites de concorrência.
 for(const name of ["allGpsGo","allGpsState"])assert.ok(ids.includes(name),"Campo do GPS geral faltando: "+name);
 assert.ok(app.includes("async function searchAllGps()")&&app.includes('el("allGpsGo").addEventListener("click",()=>void searchAllGps())'),"Ação GPS geral não conectada");
-assert.ok(app.includes("await GPS.pool(s.lines,3")&&app.includes("await GPS.pool(routeIds,GPS.PARALLEL"),"GPS geral precisa percorrer o catálogo e limitar concorrência");
+assert.ok(app.includes("await GPS.pool(catalog,3")&&app.includes("await GPS.pool(routeIds,GPS.PARALLEL"),"GPS geral precisa percorrer o catálogo e limitar concorrência");
+assert.ok(css.includes(".gps-all-row .btn"),"Botão GPS geral deve se adaptar ao celular");
 assert.ok(app.includes("if(allGpsBusy)")&&app.includes("allGpsCancel=true"),"Interrupção do GPS geral ausente");
 
 // CCO: modo celular por abas e filtro "GPS por linha".
