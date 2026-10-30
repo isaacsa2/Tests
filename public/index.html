@@ -88,6 +88,8 @@
       <div class="line-watch">
        <label for="lineWatch">GPS por linha</label>
        <div class="direct-row"><input id="lineWatch" type="search" placeholder="Ex.: 07A, 007, 300" autocomplete="off" autocapitalize="characters" spellcheck="false"><button id="lineWatchGo" class="btn btn-primary" type="button">Buscar GPS</button></div>
+       <div class="gps-all-row"><button id="allGpsGo" class="btn btn-ghost" type="button">↻ Buscar GPS geral · todas as linhas</button></div>
+       <p id="allGpsState" class="hint" role="status" aria-live="polite">Consulta geral sob demanda, em lotes limitados; não garante a frota integral.</p>
        <div id="lineWatchChips" class="watch-chips" hidden></div>
        <p id="lineWatchState" class="hint" role="status" aria-live="polite">Separe por vírgula ou espaço, até 8 linhas. O mapa, a lista e o GPS automático passam a mostrar só essas linhas.</p>
       </div>
