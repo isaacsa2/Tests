@@ -36,6 +36,8 @@
 
 /* GPS por linha: filtro do operador (ex.: 07A, 007, 300). */
 .line-watch{margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #22374d}
+.gps-all-row{margin-top:9px}
+.gps-all-row .btn{width:100%;min-height:38px;white-space:normal;text-align:center}
 .watch-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .watch-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #2f6f93;background:#123650;color:#cfeeff;border-radius:999px;padding:6px 11px;font-size:11px;font-weight:800;min-height:32px}
 .watch-chip b{font-family:"Barlow Condensed",sans-serif;font-size:16px;letter-spacing:.5px;line-height:1}
