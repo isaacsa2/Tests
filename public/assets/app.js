@@ -788,7 +788,7 @@ async function searchAllGps(){
   el("busSearch").value="";
   lineInfo("Sem filtro de linha: exibindo a frota conhecida. GPS geral em andamento.");
   status.textContent="GPS geral: descobrindo itinerários das "+catalog.length+" linhas…";
-  await GPS.pool(s.lines,3,async entry=>{
+  await GPS.pool(catalog,3,async entry=>{
    if(allGpsCancel||document.hidden)return;
    const line=GPS.normalizeLine(entry.numero);
    if(line){
